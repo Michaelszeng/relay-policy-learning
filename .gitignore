@@ -1,2 +1,5 @@
 kitchen_demos_multitask
 __pycache__
+env
+puppet
+kitchen_demos_multitask.zip
