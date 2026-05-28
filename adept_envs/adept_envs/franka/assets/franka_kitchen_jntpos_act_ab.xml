@@ -51,6 +51,9 @@
         <site name='target' pos='0 0 0' size='0.1' rgba='0 2 0 .2'/>
         <camera name='left_cap' pos='-1.2 -0.5 1.8' quat='0.78 0.49 -0.22 -0.32' />
         <camera name='right_cap' pos='1.2 -0.5 1.8' quat='0.76 0.5 0.21 0.35'/>
+        <!-- Scene overview camera: positioned in front of the kitchen, looking toward the counter -->
+        <!-- quat = Rz(-20deg) * Rx(68.75deg): pure world-z yaw composed with world-x pitch, no roll -->
+        <camera name='scene_cam' pos='-0.9 -1.2 2.7' quat='0.8128 0.5560 -0.0980 -0.1433'/>
 
         <!-- Robot -->
         <body pos='0. 0 1.8' euler='0 0 1.57'>

@@ -41,6 +41,10 @@
                                     <geom pos="0 0 0.107" quat="0.92388 0 0 -0.382683" class="panda_viz" mesh="hand_viz"/>
                                     <geom pos="0 0 0.107" quat="0.92388 0 0 -0.382683" class="panda_col" mesh="hand_col" mass="0.81909"/>
                                     <site name='end_effector' pos='0 0 .210' size='0.01' euler='0 0 -0.785398'/>
+                                    <!-- Wrist camera: side-mounted, pitched 5deg toward grippers -->
+                                    <!-- quat = R(axis=(-0.707,-0.707,0)_link7, 5deg) * Rx(pi) * Rz(-pi/4) -->
+                                    <!-- Keeps the camera right axis aligned with the gripper jaw line -->
+                                    <camera name='wrist_cam' pos='0.07 -0.07 -0.015' quat='0.0403 0.9230 0.3823 0.0167'/>
                                     <body name="panda0_leftfinger" pos="0 0 0.1654" quat="0.92388 0 0 -0.382683" childclass='panda_finger'>
                                         <inertial pos="-1.57863e-05 0.0118731 0.0434103" quat="0.705868 0.0310348 -0.0314925 0.706962" mass="0.0927059" diaginertia="6.57134e-05 6.09611e-05 1.09932e-05" />
                                         <joint name="panda0_finger_joint1"  axis="0 1 0" type="slide" range="0 0.04" class="panda_finger"/>
