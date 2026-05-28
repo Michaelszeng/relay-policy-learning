@@ -3,6 +3,50 @@
 This is a set of environments and associated data for use with MuJoCo in a kitchen simulator.
 The code instantiates a kitchen environment and parses associated demonstrations. 
 
+## Installation
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/google-research/relay-policy-learning
+cd relay-policy-learning
+```
+
+### 2. Create and activate a virtual environment
+`mujoco_py` requires **Python 3.9 or earlier** (it is incompatible with Python 3.10+):
+```bash
+python3.9 -m venv env
+source env/bin/activate
+```
+
+### 3. Install MuJoCo 2.1.0
+`mujoco-py` requires the MuJoCo binary to be installed at `~/.mujoco/mujoco210`:
+```bash
+mkdir -p ~/.mujoco
+wget https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz -O /tmp/mujoco.tar.gz
+tar -xzf /tmp/mujoco.tar.gz -C ~/.mujoco
+```
+
+Add MuJoCo and NVIDIA libraries to your library path (also add these lines to `~/.zshrc` or `~/.bashrc`):
+```bash
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco210/bin:/usr/lib/nvidia
+```
+
+### 4. Install system dependencies
+```bash
+sudo apt-get install -y libosmesa6-dev libgl1 libglfw3 patchelf
+```
+
+### 5. Install Python dependencies
+```bash
+pip install setuptools mujoco-py gym numpy click scikit-video matplotlib "mujoco==2.3.7" "dm_control==1.0.12" termcolor zarr git+https://github.com/aravindr93/mjrl.git
+```
+
+### 6. Add `adept_envs` to your PYTHONPATH
+There is no `setup.py`, so add the package directory directly (also add to `~/.zshrc` or `~/.bashrc`):
+```bash
+export PYTHONPATH=$PYTHONPATH:~/relay-policy-learning/adept_envs
+```
+
 ## Getting Started (User)
 
 1. Clone the repository
@@ -20,15 +64,19 @@ import gym
 env = gym.make('kitchen_relax-v1')
 ```
 
-3. To use the demos, first clone the puppet VR repository and add PATH/TO/puppet/vive/source to the PYTHONPATH
+3. To use the demos, clone the puppet VR repository and add its `vive/source` directory to the PYTHONPATH:
 
 ```
 $ git clone https://github.com/vikashplus/puppet
+$ export PYTHONPATH=$PYTHONPATH:/PATH/TO/puppet/vive/source
 ```
 
 4. Use parse_demos to parse the data into pkl format. Unzip the kitchen_demos_multitask.zip and then run
-```
-$  MJPL python adept_envs/utils/parse_demos.py --env kitchen_relax-v1 --demo_dir <PATH TO DEMOS DIRECTORY>  --view playback --skip 40 --render offscreen                    
+```bash
+for dir in kitchen_demos_multitask/kitchen_demos_multitask/*/; do
+  python adept_envs/adept_envs/utils/parse_demos.py --env kitchen_relax-v1 \
+    --demo_dir "$dir" --view playback --skip 40 --render offscreen
+done
 ```
 
 This is not an officially supported Google product
