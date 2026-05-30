@@ -36,12 +36,32 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco210/bin:/usr/lib/nvidia
 sudo apt-get install -y libosmesa6-dev libgl1 libglfw3 patchelf
 ```
 
-### 5. Install Python dependencies
+### 5. Install the `diffusion-policy` package and its pinned dependencies
+The eval pipeline (`eval/evaluate_kitchen.py`) loads checkpoints trained with the [diffusion-policy](https://github.com/michaelszeng/diffusion-policy) repo, so we install both its pinned dependencies and the editable package itself. **Python must be 3.9**.
 ```bash
-pip install setuptools mujoco-py gym numpy click scikit-video matplotlib "mujoco==2.3.7" "dm_control==1.0.12" termcolor zarr opencv-python git+https://github.com/aravindr93/mjrl.git
+# clone if you don't have it yet
+git clone https://github.com/michaelszeng/diffusion-policy ~/diffusion-policy
+
+# install pinned deps + editable package
+pip install -r ~/diffusion-policy/requirements.txt
+pip install -e ~/diffusion-policy
 ```
 
-### 6. Add `adept_envs` to your PYTHONPATH
+### 6. Install the kitchen environment extras
+`mujoco` must be pinned to **2.3.5** (not the latest patch release): `dm_control==1.0.12`'s onscreen viewer indexes into `mjVISSTRING`, whose layout changed in mujoco 2.3.6+ — using 2.3.7 makes the viewer import crash with `ord() expected a character, but string of length 0 found`. Offscreen rendering still works at 2.3.7, but the live viewer used by `evaluate_kitchen.py --no-headless` does not.
+```bash
+pip install \
+  setuptools \
+  mujoco-py \
+  "gym==0.26.2" \
+  "mujoco==2.3.5" \
+  "dm_control==1.0.12" \
+  click \
+  termcolor \
+  git+https://github.com/aravindr93/mjrl.git
+```
+
+### 7. Add `adept_envs` to your PYTHONPATH
 There is no `setup.py`, so add the package directory directly (also add to `~/.zshrc` or `~/.bashrc`):
 ```bash
 export PYTHONPATH=$PYTHONPATH:~/relay-policy-learning/adept_envs
@@ -92,5 +112,15 @@ python adept_envs/adept_envs/utils/visualize_dataset.py kitchen_demos.zarr \
   --episode 0 --fps 12.5 --state
 ```
 Controls: `k`/`l` step 1/10 frames forward, `j`/`h` step 1/10 frames backward, `n`/`p` next/previous episode, `space` play/pause, `q` quit.
+
+7. Evaluate a trained diffusion-policy checkpoint. A trial counts as a `success` if at least `--n-required-subtasks` distinct kitchen subtasks (out of the 7: `bottomknob`, `topknob`, `light`, `slide`, `hinge`, `microwave`, `kettle`) are achieved at any point before the timeout — order doesn't matter, and "achieved" means within D4RL's 0.3 distance threshold to that subtask's goal joint configuration. The default matches D4RL's `kitchen-complete-v0`-style rubric: any 4 of the 7 subtasks complete.
+```bash
+python eval/evaluate_kitchen.py \
+  --checkpoint /path/to/run/checkpoints/epoch=050-val_loss=0.1234.ckpt \
+  --n-rollouts 10
+```
+Use `--n-required-subtasks N` to change the success threshold (e.g. `--n-required-subtasks 3` for a lower bar).
+
+Outputs land in `outputs/<date>/<time>/` (or `--output-dir <path>`) with the same structure as `evaluate_model_custom.py`: `results.csv` (per-trial: trial, result, reward, trial_time), `results.pkl`, `summary.txt`, and `videos/trial_NNNN_<result>.mp4`. Use `--resume` together with `--output-dir` to pick up a partial run.
 
 This is not an officially supported Google product
