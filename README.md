@@ -67,6 +67,66 @@ There is no `setup.py`, so add the package directory directly (also add to `~/.z
 export PYTHONPATH=$PYTHONPATH:~/relay-policy-learning/adept_envs
 ```
 
+## Installation on the MIT CSAIL cluster
+
+The local install above assumes you can `sudo apt-get` for system libraries (mesa, glew, glfw, patchelf). On CSAIL you can't, but `conda` supplies equivalents without root. **Vulkan is not required** — every renderer in this stack (mujoco-py, `mujoco==2.3.5`, `dm_control==1.0.12`) uses OpenGL, so a conda env with the conda-forge mesa stack is sufficient.
+
+### 1. Clone the repo and create a Python 3.9 conda env
+```bash
+git clone https://github.com/google-research/relay-policy-learning ~/relay-policy-learning
+cd ~/relay-policy-learning
+
+source /data/locomotion/michzeng/miniconda3/etc/profile.d/conda.sh
+conda create -n relay python=3.9 -y
+conda activate relay
+```
+
+### 2. Install system libs via conda (replaces `apt-get` from step 4)
+```bash
+conda install -c conda-forge -y mesalib glew glfw patchelf
+```
+
+### 3. Install MuJoCo 2.1.0 binary for mujoco-py
+```bash
+mkdir -p ~/.mujoco
+wget -qO /tmp/mujoco.tar.gz https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz
+tar -xzf /tmp/mujoco.tar.gz -C ~/.mujoco
+echo 'export LD_LIBRARY_PATH=$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:$LD_LIBRARY_PATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 4. Install `diffusion-policy` + kitchen extras (same pins as steps 5-6)
+```bash
+git clone https://github.com/michaelszeng/diffusion-policy ~/diffusion-policy
+pip install -r ~/diffusion-policy/requirements.txt
+pip install -e ~/diffusion-policy
+pip install setuptools mujoco-py "gym==0.26.2" "mujoco==2.3.5" "dm_control==1.0.12" \
+    click termcolor git+https://github.com/aravindr93/mjrl.git
+```
+
+### 5. PYTHONPATH
+```bash
+echo 'export PYTHONPATH=$HOME/relay-policy-learning/adept_envs:$PYTHONPATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 6. Submit eval jobs via SLURM
+The sbatch script (`eval/submit_evaluate_checkpoints.sbatch`) activates the `relay` conda env, sets `LD_LIBRARY_PATH` for `mujoco210`, and calls `eval/evaluate_checkpoints.sh`. Edit the `readonly CHECKPOINT_PATH=...` line at the top before first submission.
+```bash
+cd ~/relay-policy-learning
+mkdir -p logs
+sbatch eval/submit_evaluate_checkpoints.sbatch 8          # single horizon
+bash   eval/batch_submit.sh                               # sweep horizons 1..15
+N_VIDEO_TRIALS=0 sbatch eval/submit_evaluate_checkpoints.sbatch 8   # one-off, no mp4s
+```
+Override the env name with `CONDA_ENV=foo sbatch ...` if you named the conda env something other than `relay`.
+
+### Cluster gotchas
+- **`mujoco-py` first-import C compile.** The first `import mujoco_py` compiles a C extension that links against `~/.mujoco/mujoco210/bin/*.so` — those must be on `LD_LIBRARY_PATH` *at compile time*. The sbatch sets it; for interactive shells make sure the `~/.bashrc` line is sourced before your first import.
+- **EGL vs OSMesa for offscreen rendering.** On GPU nodes, `MUJOCO_GL=egl` gives hardware-accelerated offscreen rendering and is much faster than the OSMesa default — significant at `N_ENVS=4+` where rendering dominates. Add `export MUJOCO_GL=egl` to the sbatch env-setup block and fall back to `osmesa` on nodes where EGL init fails.
+- **R3M weight cache.** R3M downloads its ResNet18 weights to `~/.cache/r3m` on first use. If your home directory is quota-limited, set `R3M_CACHE_DIR=/data/locomotion/<user>/r3m_cache` (or similar) before the first run.
+- **Conda activation can clear `CUDA_VISIBLE_DEVICES`.** The sbatch already restores it from `SLURM_STEP_GPUS`/`SLURM_JOB_GPUS`, but if you write your own launcher do the same.
+
 ## Getting Started (User)
 
 1. Clone the repository
