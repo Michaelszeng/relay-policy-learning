@@ -83,6 +83,8 @@ conda activate relay
 
 ### 2. Install system libs via conda (replaces `apt-get` from step 4)
 ```bash
+conda install -n base -c conda-forge conda-libmamba-solver -y
+conda config --set solver libmamba
 conda install -c conda-forge -y mesalib glew glfw patchelf
 ```
 
@@ -96,12 +98,14 @@ source ~/.bashrc
 ```
 
 ### 4. Install `diffusion-policy` + kitchen extras (same pins as steps 5-6)
+Two things must be pinned *before* the requirements install (see gotchas): pip (the requirements pull a pip that's too new for Python 3.9) and `mujoco` (`dm-control==1.0.9` requires `mujoco>=2.3.1.post1` unpinned, so pip grabs 3.5.0, which has no 3.9 wheel and fails to build from source). Installing `mujoco==2.3.5` first satisfies the constraint with a real wheel:
 ```bash
-git clone https://github.com/michaelszeng/diffusion-policy ~/diffusion-policy
-pip install -r ~/diffusion-policy/requirements.txt
-pip install -e ~/diffusion-policy
-pip install setuptools mujoco-py "gym==0.26.2" "mujoco==2.3.5" "dm_control==1.0.12" \
-    click termcolor git+https://github.com/aravindr93/mjrl.git
+pip install "pip<24.1"
+pip install "mujoco==2.3.5"
+git clone https://github.com/michaelszeng/diffusion-policy
+pip install -r /data/locomotion/michzeng/diffusion-policy-experiments/requirements.txt
+pip install -e /data/locomotion/michzeng/diffusion-policy-experiments
+pip install setuptools mujoco-py "gym==0.26.2" "dm_control==1.0.12" click termcolor git+https://github.com/aravindr93/mjrl.git
 ```
 
 ### 5. PYTHONPATH
@@ -117,15 +121,9 @@ cd ~/relay-policy-learning
 mkdir -p logs
 sbatch eval/submit_evaluate_checkpoints.sbatch 8          # single horizon
 bash   eval/batch_submit.sh                               # sweep horizons 1..15
-N_VIDEO_TRIALS=0 sbatch eval/submit_evaluate_checkpoints.sbatch 8   # one-off, no mp4s
 ```
 Override the env name with `CONDA_ENV=foo sbatch ...` if you named the conda env something other than `relay`.
 
-### Cluster gotchas
-- **`mujoco-py` first-import C compile.** The first `import mujoco_py` compiles a C extension that links against `~/.mujoco/mujoco210/bin/*.so` — those must be on `LD_LIBRARY_PATH` *at compile time*. The sbatch sets it; for interactive shells make sure the `~/.bashrc` line is sourced before your first import.
-- **EGL vs OSMesa for offscreen rendering.** On GPU nodes, `MUJOCO_GL=egl` gives hardware-accelerated offscreen rendering and is much faster than the OSMesa default — significant at `N_ENVS=4+` where rendering dominates. Add `export MUJOCO_GL=egl` to the sbatch env-setup block and fall back to `osmesa` on nodes where EGL init fails.
-- **R3M weight cache.** R3M downloads its ResNet18 weights to `~/.cache/r3m` on first use. If your home directory is quota-limited, set `R3M_CACHE_DIR=/data/locomotion/<user>/r3m_cache` (or similar) before the first run.
-- **Conda activation can clear `CUDA_VISIBLE_DEVICES`.** The sbatch already restores it from `SLURM_STEP_GPUS`/`SLURM_JOB_GPUS`, but if you write your own launcher do the same.
 
 ## Getting Started (User)
 
