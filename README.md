@@ -58,6 +58,7 @@ pip install \
   "dm_control==1.0.12" \
   click \
   termcolor \
+  statsmodels \
   git+https://github.com/aravindr93/mjrl.git
 ```
 
@@ -105,7 +106,7 @@ pip install "mujoco==2.3.5"
 git clone https://github.com/michaelszeng/diffusion-policy
 pip install -r /data/locomotion/michzeng/diffusion-policy-experiments/requirements.txt
 pip install -e /data/locomotion/michzeng/diffusion-policy-experiments
-pip install setuptools mujoco-py "gym==0.26.2" "dm_control==1.0.12" click termcolor git+https://github.com/aravindr93/mjrl.git
+pip install setuptools mujoco-py "gym==0.26.2" "dm_control==1.0.12" click termcolor statsmodels git+https://github.com/aravindr93/mjrl.git
 ```
 
 ### 5. PYTHONPATH

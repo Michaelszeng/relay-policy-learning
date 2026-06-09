@@ -22,6 +22,13 @@ import sys
 import time
 from pathlib import Path
 
+# Headless compute nodes have no X11 DISPLAY, so dm_control's default GLFW
+# backend fails to create a GL context ("gladLoadGL error"). Default to EGL
+# (offscreen GPU rendering) unless the user picked a backend explicitly. Must
+# run before any dm_control/mujoco import. Spawned workers inherit os.environ.
+os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+
 # adept_envs lives at <repo_root>/adept_envs/adept_envs. Insert <repo_root>/adept_envs
 # on sys.path so `import adept_envs` works without the user exporting PYTHONPATH.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -541,7 +548,7 @@ if __name__ == "__main__":
         rollout_max_steps = args.task_timeout
     else:
         rollout_max_steps = DEFAULT_TASK_TIMEOUT
-    np.random.seed(42)
+    np.random.seed(43)
     if args.n_envs == 1:
         print(f"Creating env ({args.env}, max_steps={rollout_max_steps})")
         batched_env = BatchedSingleEnv(_bootstrap_and_make(args.env))

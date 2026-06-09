@@ -6,3 +6,4 @@ kitchen_demos_multitask.zip
 *.pkl
 *.zarr
 outputs
+logs
