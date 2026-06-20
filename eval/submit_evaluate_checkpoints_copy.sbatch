@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=evaluate_kitchen
 #SBATCH --account=locomotion
-#SBATCH --partition=vision-shared-titanrtx
-#SBATCH --exclude=freeman-titanrtx-2,freeman-titanrtx-1,gpu20-2.drl
+#SBATCH --partition=vision-shared-rtx3090
+#SBATCH --exclude=freeman-titanrtx-2,freeman-titanrtx-1
 #SBATCH --qos=shared-if-available
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -25,12 +25,9 @@
 # ============================================================================
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/2_obs_human_expert/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/2_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/3_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/4_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/5_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/6_obs_human_expert_attention_double_enc/checkpoints"
+CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/4_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/8_obs_human_expert_attention_double_enc/checkpoints"
-CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/12_obs_human_expert_attention_double_enc/checkpoints"
+# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/12_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/16_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/20_obs_human_expert_attention_double_enc/checkpoints"
 
@@ -46,7 +43,7 @@ echo "ACTION_HORIZON: $ACTION_HORIZON"
 # Evaluation parameters
 # ============================================================================
 N_ENVS=8
-N_ROLLOUTS=500
+N_ROLLOUTS=100
 N_VIDEO_TRIALS=20
 N_REQUIRED_SUBTASKS=4
 TASK_TIMEOUT=""  # leave empty to use DEFAULT_TASK_TIMEOUT (280) from evaluate_kitchen.py
