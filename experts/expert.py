@@ -29,11 +29,16 @@ from subtasks import (  # noqa: F401 (re-exported for callers/back-compat)
     GripperCmd,
     HOME_EE_POS,
     HOME_EE_ROT,
+    MAX_SEQUENCE_LEN,
+    N_SUBTASKS,
     RESET_ARM_QPOS,
+    SUBTASK_IDS,
     SUBTASK_INFO,
     SUBTASKS,
     at_home,
     is_done,
+    sequence_onehot,
+    subtask_onehot,
 )
 
 # Default ordering used when none is supplied.

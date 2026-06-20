@@ -9,7 +9,19 @@ source. Format (diffusion_policy ReplayBuffer, zarr v2):
     data/state   (N, 60)           float64   env obs = [qp(9), obj_qp(21), goal(30)]
     data/scene   (N, 240, 320, 3)  uint8     scene camera (camera_id 2)
     data/wrist   (N, 240, 320, 3)  uint8     wrist camera (camera_id 3)
+    data/current_subtask  (N, 7)   float64   one-hot of the subtask being executed
+    data/subtask_sequence (N, 28)  float64   flattened one-hot (4 slots x 7) of the
+                                             fixed plan; constant within an episode
     meta/episode_ends (E,)         int64     cumulative episode end indices
+
+The two subtask keys let the policy condition on the same information the
+Markovian expert uses -- the current subtask (which changes through the episode)
+and the fixed plan (constant) -- so the otherwise multi-modal state->action map
+(the same state demands different moves for different subtasks) is disambiguated.
+Encoding: one-hot over the 7 subtasks (SUBTASK_IDS in subtasks/base.py); the
+sequence is 4 slots flattened to 28, with empty slots (chains shorter than 4)
+left all-zeros. The training shape_meta keys are current_subtask=[7],
+subtask_sequence=[28].
 
 We record exactly the 9-D action handed to env.step (the output of
 controller.pose_to_action) -- that is the env's native action, identical to the
@@ -26,23 +38,25 @@ Usage (needs the repo venv + EGL offscreen GL):
 """
 
 import argparse
+import random
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 
 _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent
-sys.path.insert(0, str(_HERE))                # controller, expert
+sys.path.insert(0, str(_HERE))  # controller, expert
 sys.path.insert(0, str(_REPO / "adept_envs"))  # adept_envs
-
-import gym  # noqa: E402
-import adept_envs  # noqa: E402,F401  (registers kitchen envs)
-import numcodecs  # noqa: E402
-from diffusion_policy.common.replay_buffer import ReplayBuffer  # noqa: E402
 
 import controller  # noqa: E402
 import expert  # noqa: E402
+import gym  # noqa: E402
+import numcodecs  # noqa: E402
+from diffusion_policy.common.replay_buffer import ReplayBuffer  # noqa: E402
+
+import adept_envs  # noqa: E402,F401  (registers kitchen envs)
 
 # Match kitchen_demos.zarr: blosc/lz4, clevel 5, byte shuffle, with the same
 # per-array chunking. (Chunking only affects IO, not readability, but we mirror
@@ -53,6 +67,8 @@ _CHUNKS = {
     "state": (1024, 60),
     "scene": (128, 240, 320, 3),
     "wrist": (128, 240, 320, 3),
+    "current_subtask": (1024, 7),
+    "subtask_sequence": (1024, 28),
 }
 _IMG_W, _IMG_H = 320, 240
 
@@ -75,9 +91,13 @@ def _rollout(env, sequence, max_steps):
     obs = env.reset()
     idx = 0
     state, action, scene, wrist = [], [], [], []
+    current_subtask, subtask_sequence = [], []
+    # The plan is fixed for the whole episode -> one constant vector, recorded at
+    # every step so it routes as a per-step low-dim obs key like everything else.
+    seq_onehot = expert.sequence_onehot(sequence)
 
-    last_key = None       # (idx, fsm_state) of the previous step
-    left_keys = set()     # (idx, fsm_state) phases we have entered and then left
+    last_key = None  # (idx, fsm_state) of the previous step
+    left_keys = set()  # (idx, fsm_state) phases we have entered and then left
     oscillated = False
     osc_detail = None
 
@@ -116,6 +136,13 @@ def _rollout(env, sequence, max_steps):
         action.append(np.asarray(act, dtype=np.float64))
         scene.append(np.ascontiguousarray(cams["scene"], dtype=np.uint8))
         wrist.append(np.ascontiguousarray(cams["wrist"], dtype=np.uint8))
+        # Subtask conditioning: one-hot of the subtask being executed this step
+        # (the oracle's current label) and the flattened one-hot of the fixed
+        # plan. Recording the same information the Markovian expert acts on lets
+        # the policy condition on it too (resolves the otherwise-ambiguous
+        # state->action mapping where one state maps to different subtasks' moves).
+        current_subtask.append(expert.subtask_onehot(label))
+        subtask_sequence.append(seq_onehot)
 
         obs, _, _, _ = env.step(act)
 
@@ -130,28 +157,50 @@ def _rollout(env, sequence, max_steps):
         "action": np.stack(action),
         "scene": np.stack(scene),
         "wrist": np.stack(wrist),
+        "current_subtask": np.stack(current_subtask),
+        "subtask_sequence": np.stack(subtask_sequence),
     }
     return episode, success, oscillated, osc_detail
 
 
-def record(sequence, n_episodes, out_path, max_steps, keep_failures=False):
+def record(sequence, n_episodes, out_path, keep_failures=False,
+           randomize=False, chain_len=4, seed=0):
+    """Record n_episodes successful rollouts to a zarr.
+
+    Two modes:
+      * fixed (default): every episode runs the same `sequence`.
+      * randomize=True: each *attempt* samples a fresh random chain of
+        `chain_len` distinct subtasks (random subset AND random order) from the
+        7 implemented subtasks, for diverse coverage across subtasks and
+        sequences. Sampling per attempt (not per saved episode) means a rare
+        hard sequence that keeps failing is simply replaced by a new draw rather
+        than deadlocking the loop. Reproducible via `seed`.
+    """
     env = gym.make("kitchen_relax-v1").unwrapped
     rb = ReplayBuffer.create_empty_numpy()
+    rng = random.Random(seed)
+    all_subtasks = list(expert.SUBTASKS.keys())
 
+    subtask_coverage = Counter()  # subtask -> # saved episodes containing it
     n_saved, n_attempt = 0, 0
     while n_saved < n_episodes:
         n_attempt += 1
-        episode, success, oscillated, osc_detail = _rollout(env, sequence, max_steps)
+        if randomize:
+            seq = rng.sample(all_subtasks, chain_len)
+        else:
+            seq = sequence
+        episode, success, oscillated, osc_detail = _rollout(env, seq, 200 * len(seq))
         T = episode["action"].shape[0]
         if success or keep_failures:
             rb.add_episode(episode)
             n_saved += 1
+            subtask_coverage.update(seq)
             tag = "ok" if success else ("FAIL-osc(kept)" if oscillated else "FAIL(kept)")
             print(f"  episode {n_saved}/{n_episodes} [{tag}] len={T} "
-                  f"(attempt {n_attempt})")
+                  f"seq={'+'.join(seq)} (attempt {n_attempt})")
         else:
             reason = f"OSCILLATION @ {osc_detail}" if oscillated else "incomplete"
-            print(f"  attempt {n_attempt}: FAILED ({reason}), discarding (len={T})")
+            print(f"  attempt {n_attempt}: FAILED ({reason}, seq={'+'.join(seq)}), discarding (len={T})")
 
     env.close_env()
 
@@ -159,21 +208,27 @@ def record(sequence, n_episodes, out_path, max_steps, keep_failures=False):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     rb.save_to_path(str(out_path), chunks=_CHUNKS, compressors=_COMPRESSOR, if_exists="replace")
     print(f"\nSaved {n_saved} episodes, {rb.n_steps} steps -> {out_path}")
-    print(f"  arrays: {{k: (shape, dtype)}} = "
-          + ", ".join(f"{k}:{v.shape}/{v.dtype}" for k, v in rb.data.items()))
+    print("  arrays: {k: (shape, dtype)} = " + ", ".join(f"{k}:{v.shape}/{v.dtype}" for k, v in rb.data.items()))
     print(f"  success rate: {n_saved}/{n_attempt} attempts")
+    if randomize:
+        print("  subtask coverage (episodes containing each): "
+              + ", ".join(f"{k}:{subtask_coverage[k]}" for k in all_subtasks))
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--subtask", type=str, default=None, help="single subtask, e.g. microwave")
     p.add_argument("--sequence", type=str, default=None, help="comma-separated subtask sequence")
-    p.add_argument("--n-episodes", type=int, default=50, help="number of episodes to KEEP")
-    p.add_argument("--max-steps", type=int, default=None,
-                   help="max steps per episode (default: 200 * len(sequence))")
-    p.add_argument("--keep-failures", action="store_true",
-                   help="also record episodes where the sequence did not complete")
-    p.add_argument("--out", type=str, default=str(_HERE / "data" / "expert_demos.zarr"))
+    p.add_argument("--randomize", action="store_true",
+                   help="sample a fresh random chain per episode (diverse coverage); "
+                        "ignores --subtask/--sequence")
+    p.add_argument("--chain-len", type=int, default=4, help="subtasks per chain when --randomize")
+    p.add_argument("--seed", type=int, default=0, help="RNG seed for --randomize")
+    p.add_argument("--n-episodes", type=int, default=568, help="number of episodes to KEEP")
+    p.add_argument(
+        "--keep-failures", action="store_true", help="also record episodes where the sequence did not complete"
+    )
+    p.add_argument("--out", type=str, default=str(_HERE / "data" / "kitchen_demos_markovian_expert.zarr"))
     args = p.parse_args()
 
     if args.sequence:
@@ -183,6 +238,9 @@ if __name__ == "__main__":
     else:
         seq = ["microwave"]
 
-    max_steps = args.max_steps if args.max_steps is not None else 200 * len(seq)
-    print(f"Recording {args.n_episodes} episodes of sequence {seq} (max_steps={max_steps})")
-    record(seq, args.n_episodes, args.out, max_steps, keep_failures=args.keep_failures)
+    if args.randomize:
+        print(f"Recording {args.n_episodes} episodes of random {args.chain_len}-subtask chains (seed={args.seed})")
+    else:
+        print(f"Recording {args.n_episodes} episodes of sequence {seq}")
+    record(seq, args.n_episodes, args.out, keep_failures=args.keep_failures,
+           randomize=args.randomize, chain_len=args.chain_len, seed=args.seed)
