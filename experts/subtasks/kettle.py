@@ -74,7 +74,7 @@ class KettleSubtask(Subtask):
     # ~0.08, closed-on-nothing is ~0, the ~0.04-dia post holds them in a band.
     GRASP_WIDTH_MIN = 0.022
     GRASP_WIDTH_MAX = 0.055
-    GRASP_OPEN_WIDTH = 0.075
+    GRASP_OPEN_WIDTH = 0.07
 
     # --- geometry helpers (read current sim state only) ---
     def handle(self, env):

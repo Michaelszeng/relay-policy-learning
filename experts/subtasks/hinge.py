@@ -60,7 +60,7 @@ class HingeSubtask(Subtask):
     # A grasp is on the bar when the fingers are partially closed.
     GRASP_WIDTH_MIN = 0.022
     GRASP_WIDTH_MAX = 0.055
-    GRASP_OPEN_WIDTH = 0.072  # released gripper near the bar only reaches ~0.078
+    GRASP_OPEN_WIDTH = 0.07  # released gripper near the bar only reaches ~0.078
     # Door considered "open" once the angle is past this (D4RL goal 1.45, bonus
     # needs within 0.3 -> >= 1.15. _door_closed sits a wide
     # 0.3 below it (hysteresis): only while essentially shut do we approach/grasp,

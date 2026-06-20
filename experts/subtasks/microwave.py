@@ -12,7 +12,7 @@ its hinge arc. See the surrounding comments for the why behind each trick.
 import numpy as np
 from controller import body_point_world, ee_pos, gripper_width, joint_anchor_axis
 
-from .base import HOME_EE_POS, HOME_EE_ROT, GripperCmd, Subtask, qpos, rz
+from .base import HOME_EE_POS, HOME_EE_ROT, GripperCmd, Subtask, qpos, rx, rz
 
 
 class MicrowaveSubtask(Subtask):
@@ -40,6 +40,15 @@ class MicrowaveSubtask(Subtask):
     # the bar: the grasp stops being a pure friction pinch (which slips) and
     # becomes a form-closure hook that also pushes the handle around the arc.
     OPEN_YAW = np.deg2rad(45)
+    # ...and pitch the gripper nose-down during the pull. The hook + arc-pull
+    # otherwise rides the gripper *up* the bar (the contact force has an upward
+    # component) until it reaches the very top and nearly slides off -- fragile for
+    # a learned policy that makes small errors. A -30 deg downward pitch cancels
+    # that ride so the gripper holds its grasp height (~5 cm of margin below the
+    # bar top) through the whole open. The grasp itself stays un-pitched: tilting
+    # the grasp reaches lower on the bar but the tilted grip is far less reliable,
+    # and steeper open pitches break the form-closure hook, so -30 is the max.
+    OPEN_PITCH = np.deg2rad(-30)
 
     # FSM thresholds. The approach phases are expressed in *approach-axis
     # coordinates* (depth = signed distance from the handle along the approach
@@ -74,16 +83,17 @@ class MicrowaveSubtask(Subtask):
     # pass through the same door angle (~-0.5) while the fingers are still in the
     # grasp band. See fsm_state.
     DOOR_DOF = 22
-    # After releasing, retreat the gripper away from the door along this (x, y)
-    # direction (mostly -y toward the robot, plus a little -x) before homing, so
-    # the homing sweep doesn't cut across the door and knock it shut (that knock,
-    # not the door's own tiny settle, was closing the door and causing re-grasp
-    # cycling). Exit the retreat by distance from the handle; a one-way z latch
-    # (home *raises* z while post-release holds it near WORK_Z) prevents the
-    # post-release <-> home chatter a y/distance gate alone would cause (homing
-    # raises y back past the handle, which a distance gate reads as "near" again).
-    RETREAT_DIR = np.array([-0.2, -1.0, 0.0]) / np.linalg.norm([-0.2, -1.0, 0.0])
-    RETREAT_REACH = 0.22  # how far along RETREAT_DIR (from the handle) to aim
+    # After releasing, retreat the gripper straight out in -y (away from the door,
+    # toward the robot) before homing, so the home sweep doesn't cut across the
+    # door and knock it shut (that knock, not the door's own tiny settle, was
+    # closing the door and causing re-grasp cycling). Exit the retreat on a one-way
+    # *y* latch: stay in post-release while the EE is still forward (y above
+    # POST_RELEASE_Y_CLEAR), home once it has backed past it. The home pose sits at
+    # y~0.12 (below the clear threshold), so once homing starts the EE can never
+    # come forward enough to re-enter post-release. (A z latch chatters here: the
+    # joint-space home's z oscillates across any z threshold.)
+    POST_RELEASE_Y_CLEAR = 0.15  # back past this EE y before homing
+    POST_RELEASE_Y_TARGET = 0.05  # -y point the retreat backs straight out to
 
     def handle(self, env):
         """World position of the handle bar center, with z pinned to WORK_Z."""
@@ -164,13 +174,13 @@ class MicrowaveSubtask(Subtask):
         # Finish sequence (door substantially open and the gripper has begun
         # opening): let go fully, retreat clear of the door, then home. Gated on
         # the low DOOR_DONE_ANGLE so the dip below the open target right after
-        # release can't bounce us back into a re-grasp, and on a one-way z latch
-        # so homing (which raises z and y) can't re-enter post-release.
+        # release can't bounce us back into a re-grasp, and on a one-way y latch
+        # (home backs the EE to y~0.12, below POST_RELEASE_Y_CLEAR) so homing can't
+        # re-enter post-release.
         if door < self.DOOR_DONE_ANGLE and not self._grasping(env):
             if not self._grasp_opened(env):
                 return "release"
-            ee = ee_pos(env)
-            if ee[2] < self.WORK_Z + 0.1:
+            if ee_pos(env)[1] > self.POST_RELEASE_Y_CLEAR:
                 return "post-release"
             return "return-to-home"
         # Reached the open target while still holding -> start releasing.
@@ -218,14 +228,16 @@ class MicrowaveSubtask(Subtask):
         if state == "grasp":
             return GripperCmd.CLOSE, self.grasp_pose(env), rot
         if state == "open":
-            return GripperCmd.CLOSE, self.open_pose(env), rz(self.OPEN_YAW) @ HOME_EE_ROT
+            # World-z yaw hooks a finger behind the bar; world-x downward pitch
+            # cancels the upward ride along the bar (see OPEN_PITCH).
+            return GripperCmd.CLOSE, self.open_pose(env), rx(self.OPEN_PITCH) @ rz(self.OPEN_YAW) @ HOME_EE_ROT
         if state == "release":
             return GripperCmd.OPEN, self.grasp_pose(env), rot
         if state == "post-release":
-            # Retreat away from the door (mostly -y, a little -x) at the work
-            # height before homing, so the arm doesn't sweep across the door.
-            target = self.handle(env) + self.RETREAT_REACH * self.RETREAT_DIR
-            target[2] = self.WORK_Z + 0.15
+            # Back straight out in -y (hold x and the current z) so the gripper
+            # pulls clear of the door before the home move sweeps the arm back.
+            ee = ee_pos(env)
+            target = np.array([ee[0], self.POST_RELEASE_Y_TARGET, ee[2]])
             return GripperCmd.OPEN, target, rot
         if state == "return-to-home":
             return GripperCmd.OPEN, HOME_EE_POS, rot
