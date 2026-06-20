@@ -3,10 +3,10 @@
 This is a fork of the [original Franka Kitchen MuJoCo environments repo](https://github.com/google-research/relay-policy-learning).
 
 This contains 2 new features beyond the original repo:
-1) Dataset post-processing to add image keys for a static scene camera and wrist camera.
-2) A Markovian, scripted expert and data generation pipeline.
+1) Dataset post-processing script to add image keys for a scene camera and wrist camera, useful for training image-based Behavior Cloning policies.
+2) A Markovian, scripted expert and data generation pipeline for mass data generation and studying nature-of-expert in Behavior Cloning.
 
-I maintained relatively clean code so this can hopefully be reused in other research projects.
+Please use in your project if helpful!
 
 
 ## Installation
@@ -113,7 +113,7 @@ Controls: `k`/`l` step 1/10 frames forward, `j`/`h` step 1/10 frames backward, `
 
 An automated data generation script runs a markovian scripted expert across random 4-subtask sequences and collects successful episodes. This scripted expert is roughly 94% successful, which should be sufficient for data generation.
 
-Given the multi-modal, multi-task nature of Franka Kitchen, developing a true "Markovian" (in the sense that the expert's action depends only on the environment state) expert is very challenging. To make such a Markovian expert possible, we additionally record one-hot encodings containing the 4-subtask sequence (which is constant throughout a recorded episode) as well the current active subtask (which will change 4 times throughout the episode) as observation keys in the .zarr dataset. Thus, the scripted expert *is* Markovian w.r.t. the combined environment state + subtask labels.
+Given the multi-modal, multi-task nature of Franka Kitchen, developing a true "Markovian" (in the sense that the expert's action depends only on the environment state) expert is very challenging. To make such a Markovian expert possible, we additionally record one-hot encodings containing the 4-subtask sequence (which is constant throughout a recorded episode) as observation keys in the .zarr dataset. Thus, the scripted expert *is* Markovian w.r.t. the combined environment state + subtask labels.
 
 ```bash
 # Generate random 4-subtask sequences
