@@ -44,7 +44,18 @@ sudo apt-get install -y libosmesa6-dev libgl1 libglfw3 patchelf
 
 ### 5. Python dependencies
 
-TODO
+`mujoco-py` builds a Cython extension against NumPy on its first import, so install those two **first**:
+```bash
+pip install Cython==0.29.32 numpy==1.26.4   # build prerequisites for mujoco-py (Cython must be <3)
+```
+
+Then install everything else:
+```bash
+pip install mujoco-py==2.1.2.14 mujoco==2.3.5 gym==0.26.2 zarr==2.12.0 \
+  numcodecs==0.10.2 imageio==2.22.0 imageio-ffmpeg==0.4.7 matplotlib==3.7.0 \
+  opencv-python==4.11.0.86 tqdm==4.64.1 click==8.1.8 mjrl==1.0.0 sk-video==1.1.11
+```
+
 
 ### (Optional) Policy evaluation installation
 
@@ -74,7 +85,7 @@ $ git clone https://github.com/vikashplus/puppet
 $ export PYTHONPATH=$PYTHONPATH:/PATH/TO/puppet/vive/source
 ```
 
-2. Use parse_demos to parse the data into pkl format with 12.5 Hz observations/actions. Unzip the kitchen_demos_multitask.zip and then run
+2. Use parse_demos to parse the data into pkl format with 12.5 Hz observations/actions. Unzip the kitchen_demos_multitask.zip and then run:
 ```bash
 for dir in kitchen_demos_multitask/kitchen_demos_multitask/*/; do
   python adept_envs/adept_envs/utils/parse_demos.py --env kitchen_relax-v1 \
@@ -102,12 +113,12 @@ Controls: `k`/`l` step 1/10 frames forward, `j`/`h` step 1/10 frames backward, `
 
 An automated data generation script runs a markovian scripted expert across random 4-subtask sequences and collects successful episodes. This scripted expert is roughly 94% successful, which should be sufficient for data generation.
 
-Given the multi-modal, multi-task nature of Franka Kitchen, developing a true "Markovian" (in the sense that the expert's action depends only on the environment state) expert is very challenging. To make such a Markovian expert possible, we record one-hot encodings containing the 4-subtask sequence (which is constant throughout a recorded episode) as well the current active subtask (which will change 4 times throughout the episode) as observation keys in the .zarr dataset. Thus, the scripted expert *is* Markovian w.r.t. the combined environment state + subtask labels.
+Given the multi-modal, multi-task nature of Franka Kitchen, developing a true "Markovian" (in the sense that the expert's action depends only on the environment state) expert is very challenging. To make such a Markovian expert possible, we additionally record one-hot encodings containing the 4-subtask sequence (which is constant throughout a recorded episode) as well the current active subtask (which will change 4 times throughout the episode) as observation keys in the .zarr dataset. Thus, the scripted expert *is* Markovian w.r.t. the combined environment state + subtask labels.
 
 ```bash
 # Generate random 4-subtask sequences
 python experts/record_demos.py --randomize --chain-len 4 \
-      --n-episodes 500 --seed 0 \
+      --seed 0 \
       --out kitchen_demos_markovian_scripted_expert.zarr
 ```
 
