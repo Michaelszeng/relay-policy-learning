@@ -1,7 +1,13 @@
 # Relay Policy Learning Environments
 
-This is a set of environments and associated data for use with MuJoCo in a kitchen simulator.
-The code instantiates a kitchen environment and parses associated demonstrations. 
+This is a fork of the [original Franka Kitchen MuJoCo environments repo](https://github.com/google-research/relay-policy-learning).
+
+This contains 2 new features beyond the original repo:
+1) Dataset post-processing to add image keys for a static scene camera and wrist camera.
+2) A Markovian, scripted expert and data generation pipeline.
+
+I maintained relatively clean code so this can hopefully be reused in other research projects.
+
 
 ## Installation
 
