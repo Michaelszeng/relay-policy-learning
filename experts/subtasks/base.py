@@ -54,6 +54,23 @@ SUBTASK_INFO = {
 }
 BONUS_THRESH = 0.3
 
+# Canonical integer id per subtask, fixed so the recorder and any downstream
+# consumer (training / eval) agree on the encoding. The dataset records *one-hot*
+# encodings of these ids (see record_demos.py) so the policy can condition on
+# both the current subtask (changes through the episode) and the fixed plan
+# (constant through the episode). Do not renumber these once data is recorded.
+SUBTASK_IDS = {
+    "microwave": 0,
+    "kettle": 1,
+    "slide": 2,
+    "light": 3,
+    "topknob": 4,
+    "bottomknob": 5,
+    "hinge": 6,
+}
+N_SUBTASKS = len(SUBTASK_IDS)  # 7
+MAX_SEQUENCE_LEN = 4  # subtask_sequence is padded/truncated to this many slots
+
 
 # --------------------------------------------------------------------------- #
 # Shared helpers (all read current sim state only).
@@ -79,6 +96,30 @@ def ry(theta):
     """Rotation matrix for a roll of `theta` radians about the world y axis."""
     c, s = np.cos(theta), np.sin(theta)
     return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
+
+
+def subtask_onehot(name):
+    """(N_SUBTASKS,) one-hot encoding of a single subtask label."""
+    v = np.zeros(N_SUBTASKS, dtype=np.float64)
+    v[SUBTASK_IDS[name]] = 1.0
+    return v
+
+
+def sequence_onehot(sequence):
+    """Flattened (MAX_SEQUENCE_LEN * N_SUBTASKS,) one-hot of the fixed plan.
+
+    Slot i holds the one-hot of sequence[i]; slots past len(sequence) (a chain
+    shorter than MAX_SEQUENCE_LEN) stay all-zeros -- the "empty slot" padding,
+    which one-hot represents naturally with no sentinel id.
+    """
+    if len(sequence) > MAX_SEQUENCE_LEN:
+        raise ValueError(
+            f"sequence of length {len(sequence)} exceeds MAX_SEQUENCE_LEN={MAX_SEQUENCE_LEN}"
+        )
+    v = np.zeros(MAX_SEQUENCE_LEN * N_SUBTASKS, dtype=np.float64)
+    for i, name in enumerate(sequence):
+        v[i * N_SUBTASKS + SUBTASK_IDS[name]] = 1.0
+    return v
 
 
 def is_done(env, subtask_name):

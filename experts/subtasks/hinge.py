@@ -57,9 +57,12 @@ class HingeSubtask(Subtask):
     DEPTH_TOL = 0.03  # slack on reaching a depth waypoint
     GRASP_DEPTH_TOL = 0.04  # slack on reaching the grasp depth
 
-    # A grasp is on the bar when the fingers are partially closed.
+    # A grasp is on the bar when the fingers are partially closed. The upper bound
+    # is a touch generous (0.06): near the end of the ~83 deg swing the grip can
+    # drift open to ~0.056, and a tighter bound read that as "let go" and released
+    # ~1 deg short of the done threshold (door reached 1.145, needs 1.15).
     GRASP_WIDTH_MIN = 0.022
-    GRASP_WIDTH_MAX = 0.055
+    GRASP_WIDTH_MAX = 0.06
     GRASP_OPEN_WIDTH = 0.07  # released gripper near the bar only reaches ~0.078
     # Door considered "open" once the angle is past this (D4RL goal 1.45, bonus
     # needs within 0.3 -> >= 1.15. _door_closed sits a wide
@@ -80,13 +83,6 @@ class HingeSubtask(Subtask):
     # chatter, and the door is never approached again.
     POST_RELEASE_TARGET_Y = 0.10  # pure -y point the retreat backs straight out to
     POST_RELEASE_CLEAR_DIST = 0.15  # once this far from the handle, the EE is clear
-    # ...and a one-way z latch: post-release holds the EE at WORK_Z, while homing
-    # only ever lowers z. Requiring the EE to still be near WORK_Z to *be* in
-    # post-release means that once homing has dropped it below WORK_Z - this
-    # margin, it can never re-enter post-release -- killing the post-release <->
-    # home chatter (homing raises y back past the handle, which a distance gate
-    # alone would read as "near the door again").
-    POST_RELEASE_Z_MARGIN = 0.009
 
     def handle(self, env):
         """World position of the handle bar center, with z pinned to WORK_Z."""
@@ -148,11 +144,15 @@ class HingeSubtask(Subtask):
         if door > self.DOOR_DONE_ANGLE and not self._grasping(env):
             if not self._grasp_opened(env):
                 return "release"
-            ee = ee_pos(env)
-            really_near_door = np.linalg.norm(ee - self.handle(env)) < 0.5 * self.POST_RELEASE_CLEAR_DIST
-            near_door = np.linalg.norm(ee - self.handle(env)) < self.POST_RELEASE_CLEAR_DIST
-            still_high = ee[2] > self.WORK_Z - self.POST_RELEASE_Z_MARGIN
-            if really_near_door or (near_door and still_high):
+            # Retreat in -y until clear of the door, then home. Distance from the
+            # handle grows monotonically under *both* the retreat and the
+            # joint-space home (which pulls the arm down and toward the robot, away
+            # from the high handle), so a single distance gate is a clean one-way
+            # latch -- no chatter, and the door is never re-approached. (The old
+            # z-margin guard flickered as the EE z wavered a few mm around WORK_Z;
+            # it was only needed for the former Cartesian home, which moved back
+            # toward the handle's y.)
+            if np.linalg.norm(ee_pos(env) - self.handle(env)) < self.POST_RELEASE_CLEAR_DIST:
                 return "post-release"
             return "return-to-home"
         # Reached the open target while still holding -> start releasing.

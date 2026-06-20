@@ -12,7 +12,7 @@ its hinge arc. See the surrounding comments for the why behind each trick.
 import numpy as np
 from controller import body_point_world, ee_pos, gripper_width, joint_anchor_axis
 
-from .base import HOME_EE_POS, HOME_EE_ROT, GripperCmd, Subtask, qpos, rx, rz
+from .base import HOME_EE_POS, HOME_EE_ROT, RESET_ARM_QPOS, GripperCmd, Subtask, qpos, rx, rz
 
 
 class MicrowaveSubtask(Subtask):
@@ -94,6 +94,14 @@ class MicrowaveSubtask(Subtask):
     # joint-space home's z oscillates across any z threshold.)
     POST_RELEASE_Y_CLEAR = 0.15  # back past this EE y before homing
     POST_RELEASE_Y_TARGET = 0.05  # -y point the retreat backs straight out to
+    # One-way hysteresis latch on the joint distance to the home config: it
+    # decreases monotonically through *both* the -y retreat and the joint-space
+    # home, so once the arm is this close to home we commit to homing and never
+    # re-enter post-release. (The EE y alone bounces up a few mm on the joint
+    # home's first step, which would re-trigger post-release; this guards it.)
+    # Set below the joint distance at retreat completion (~1.8) and above where
+    # the bounce occurs (~1.5).
+    POST_RELEASE_HOME_LATCH = 1.7
 
     def handle(self, env):
         """World position of the handle bar center, with z pinned to WORK_Z."""
@@ -180,9 +188,15 @@ class MicrowaveSubtask(Subtask):
         if door < self.DOOR_DONE_ANGLE and not self._grasping(env):
             if not self._grasp_opened(env):
                 return "release"
-            if ee_pos(env)[1] > self.POST_RELEASE_Y_CLEAR:
-                return "post-release"
-            return "return-to-home"
+            # Retreat in -y until clear of the door (EE y <= Y_CLEAR), then home.
+            # The joint-distance latch is a one-way guard: it shrinks monotonically
+            # through both the retreat and the joint-space home, so once we are this
+            # far into homing we stay homing -- the EE y itself blips up a few mm on
+            # the home's first step and would otherwise bounce back to post-release.
+            jdist = float(np.linalg.norm(qpos(env)[:7] - RESET_ARM_QPOS))
+            if ee_pos(env)[1] <= self.POST_RELEASE_Y_CLEAR or jdist < self.POST_RELEASE_HOME_LATCH:
+                return "return-to-home"
+            return "post-release"
         # Reached the open target while still holding -> start releasing.
         if self._door_open(env):
             return "release"
