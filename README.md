@@ -104,8 +104,12 @@ An automated data generation script runs a markovian scripted expert across rand
 
 Given the multi-modal, multi-task nature of Franka Kitchen, developing a true "Markovian" (in the sense that the expert's action depends only on the environment state) expert is very challenging. To make such a Markovian expert possible, we record one-hot encodings containing the 4-subtask sequence (which is constant throughout a recorded episode) as well the current active subtask (which will change 4 times throughout the episode) as observation keys in the .zarr dataset. Thus, the scripted expert *is* Markovian w.r.t. the combined environment state + subtask labels.
 
-1. 
-
+```bash
+# Generate random 4-subtask sequences
+python experts/record_demos.py --randomize --chain-len 4 \
+      --n-episodes 500 --seed 0 \
+      --out kitchen_demos_markovian_scripted_expert.zarr
+```
 
 
 ### Evaluating Trained Policies
