@@ -142,14 +142,17 @@ import gym
 env = gym.make('kitchen_relax-v1')
 ```
 
-3. To use the demos, clone the puppet VR repository and add its `vive/source` directory to the PYTHONPATH:
+## Download pre-collected Human Teleoperation Dataset
+
+
+1. To use the demos, clone the puppet VR repository and add its `vive/source` directory to the PYTHONPATH:
 
 ```
 $ git clone https://github.com/vikashplus/puppet
 $ export PYTHONPATH=$PYTHONPATH:/PATH/TO/puppet/vive/source
 ```
 
-4. Use parse_demos to parse the data into pkl format with 12.5 Hz observations/actions. Unzip the kitchen_demos_multitask.zip and then run
+2. Use parse_demos to parse the data into pkl format with 12.5 Hz observations/actions. Unzip the kitchen_demos_multitask.zip and then run
 ```bash
 for dir in kitchen_demos_multitask/kitchen_demos_multitask/*/; do
   python adept_envs/adept_envs/utils/parse_demos.py --env kitchen_relax-v1 \
@@ -157,21 +160,30 @@ for dir in kitchen_demos_multitask/kitchen_demos_multitask/*/; do
 done
 ```
 
-5. Convert pkl files into zarr dataset (recursively scans `--input_dir` for `*.pkl`):
+3. Convert pkl files into zarr dataset (recursively scans `--input_dir` for `*.pkl`):
 ```bash
 python adept_envs/adept_envs/utils/process_pickles.py \
   --input_dir kitchen_demos_multitask/kitchen_demos_multitask \
   --output kitchen_demos.zarr
 ```
 
-6. For debugging: visualize the zarr dataset. Add `--state` to also show a time-series panel of the non-camera arrays beneath the camera tiles.
+4. For debugging: visualize the zarr dataset. Add `--state` to also show a time-series panel of the non-camera arrays beneath the camera tiles.
 ```bash
 python adept_envs/adept_envs/utils/visualize_dataset.py kitchen_demos.zarr \
   --episode 0 --fps 12.5 --state
 ```
 Controls: `k`/`l` step 1/10 frames forward, `j`/`h` step 1/10 frames backward, `n`/`p` next/previous episode, `space` play/pause, `q` quit.
 
-7. Evaluate a trained diffusion-policy checkpoint. A trial counts as a `success` if at least `--n-required-subtasks` distinct kitchen subtasks (out of the 7: `bottomknob`, `topknob`, `light`, `slide`, `hinge`, `microwave`, `kettle`) are achieved at any point before the timeout — order doesn't matter, and "achieved" means within D4RL's 0.3 distance threshold to that subtask's goal joint configuration. The default matches D4RL's `kitchen-complete-v0`-style rubric: any 4 of the 7 subtasks complete.
+
+
+## Generating Data Using Markovian Expert
+
+1. 
+
+
+## Evaluating Trained Policies
+
+7. Evaluate a trained diffusion policy checkpoint (trained using my [diffusion policy repo](https://github.com/Michaelszeng/diffusion-policy-experiments)). A trial counts as a `success` if at least `--n-required-subtasks` distinct kitchen subtasks (out of the 7: `bottomknob`, `topknob`, `light`, `slide`, `hinge`, `microwave`, `kettle`) are achieved at any point before the timeout — order doesn't matter, and "achieved" means within D4RL's 0.3 distance threshold to that subtask's goal joint configuration. The default matches D4RL's `kitchen-complete-v0`-style rubric: any 4 of the 7 subtasks complete.
 ```bash
 python eval/evaluate_kitchen.py \
   --checkpoint /path/to/run/checkpoints/epoch=050-val_loss=0.1234.ckpt \
@@ -180,5 +192,3 @@ python eval/evaluate_kitchen.py \
 Use `--n-required-subtasks N` to change the success threshold (e.g. `--n-required-subtasks 3` for a lower bar).
 
 Outputs land in `outputs/<date>/<time>/` (or `--output-dir <path>`) with the same structure as `evaluate_model_custom.py`: `results.csv` (per-trial: trial, result, reward, trial_time), `results.pkl`, `summary.txt`, and `videos/trial_NNNN_<result>.mp4`. Use `--resume` together with `--output-dir` to pick up a partial run.
-
-This is not an officially supported Google product
