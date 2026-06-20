@@ -24,13 +24,14 @@
 # Path to a .ckpt file or a directory of .ckpt files.
 # ============================================================================
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/2_obs_human_expert/checkpoints"
+CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/2_obs_markovian_expert/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/2_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/3_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/4_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/5_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/6_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/8_obs_human_expert_attention_double_enc/checkpoints"
-CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/12_obs_human_expert_attention_double_enc/checkpoints"
+# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/12_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/16_obs_human_expert_attention_double_enc/checkpoints"
 # CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/20_obs_human_expert_attention_double_enc/checkpoints"
 
@@ -50,6 +51,10 @@ N_ROLLOUTS=500
 N_VIDEO_TRIALS=20
 N_REQUIRED_SUBTASKS=4
 TASK_TIMEOUT=""  # leave empty to use DEFAULT_TASK_TIMEOUT (280) from evaluate_kitchen.py
+# Markovian checkpoints need a longer per-task timeout.
+if [[ "${CHECKPOINT_PATH}" == *markovian* ]]; then
+    TASK_TIMEOUT=750
+fi
 # ============================================================================
 
 # Extract the experiment name as the directory immediately before "checkpoints".
