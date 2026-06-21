@@ -117,8 +117,10 @@ Given the multi-modal, multi-task nature of Franka Kitchen, developing a true "M
 
 ```bash
 # Generate random 4-subtask sequences
+# 4 workers is appropriate on desktop with 32 GB of RAM (and at least 4 cores)
 python experts/record_demos.py --randomize --chain-len 4 \
       --seed 0 \
+      --n-workers 4 \
       --out kitchen_demos_markovian_scripted_expert.zarr
 ```
 

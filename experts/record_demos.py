@@ -1,4 +1,5 @@
-"""Record Markovian-expert rollouts into a diffusion_policy ReplayBuffer zarr.
+"""
+Record Markovian-expert rollouts into a diffusion_policy ReplayBuffer zarr.
 
 Format (plain zarr):
 
@@ -20,18 +21,27 @@ sequence is 4 slots flattened to 28, with empty slots (chains shorter than 4)
 left all-zeros. The training shape_meta keys are current_subtask=[7],
 subtask_sequence=[28].
 
-We record exactly the 9-D action (which are joint velocities) handed to env.step, after the
-Diff IK conversion.
+NOTE: I'm currently only training + evaluatingpolicies using the
+data/subtask_sequence key (ignoring the data/current_subtask key). I find this
+(along with camera images) is enough for the policy to infer the hidden current
+subtask state.
+
+We record exactly the 9-D action (which are joint velocities) handed to env.step,
+after the Diff IK conversion.
 
 Per step we store (o_t, a_t): the obs/images seen *before* stepping paired with
 the action taken.
 """
 
 import argparse
+import atexit
+import itertools
+import multiprocessing as mp
 import random
 import shutil
 import sys
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -197,7 +207,47 @@ def _rollout(env, sequence, max_steps):
     return episode, success, oscillated, osc_detail
 
 
-def record(sequence, n_episodes, out_path, keep_failures=False, randomize=False, chain_len=4, seed=0):
+# Per-worker state. Each pool process builds its own env (and mujoco_py GL
+# context) exactly once in the initializer, then reuses it across attempts.
+_W = {}
+
+
+def _init_worker(randomize, chain_len, seed, sequence):
+    # Build the env *inside* the worker process: the env and its offscreen GL
+    # context must never be shared/forked across processes.
+    env = gym.make("kitchen_relax-v1").unwrapped
+    # Release the env's resources when the worker exits. This only runs on a
+    # *graceful* shutdown (pool.close()+join()); a terminate() SIGTERMs the
+    # worker and skips it, which is fine because the OS reclaims the per-process
+    # GL context anyway -- this is belt-and-suspenders for backends whose
+    # close() actually frees something.
+    atexit.register(env.close_env)
+    _W["env"] = env
+    _W["randomize"] = randomize
+    _W["chain_len"] = chain_len
+    _W["seed"] = seed
+    _W["sequence"] = sequence
+    _W["all_subtasks"] = list(expert.SUBTASKS.keys())
+
+
+def _run_one(attempt_idx):
+    """Run a single rollout attempt; returns the same tuple as `_rollout` + seq.
+
+    For --randomize the chain is sampled here from a per-attempt RNG seeded by
+    (seed, attempt_idx), so draws are reproducible and independent of how work is
+    distributed across workers.
+    """
+    env = _W["env"]
+    if _W["randomize"]:
+        rng = random.Random((_W["seed"], attempt_idx))
+        seq = rng.sample(_W["all_subtasks"], _W["chain_len"])
+    else:
+        seq = _W["sequence"]
+    episode, success, oscillated, osc_detail = _rollout(env, seq, 200 * len(seq))
+    return seq, episode, success, oscillated, osc_detail
+
+
+def record(sequence, n_episodes, out_path, keep_failures=False, randomize=False, chain_len=4, seed=0, n_workers=8):
     """Record n_episodes successful rollouts to a zarr.
 
     Two modes:
@@ -208,40 +258,59 @@ def record(sequence, n_episodes, out_path, keep_failures=False, randomize=False,
         sequences. Sampling per attempt (not per saved episode) means a rare
         hard sequence that keeps failing is simply replaced by a new draw rather
         than deadlocking the loop. Reproducible via `seed`.
+
+    Rollouts run in a pool of `n_workers` processes (each owning its own env);
+    the main process is the sole writer, consuming results as they finish. Work
+    is dispatched in waves of `n_workers` attempts so the number of in-flight
+    rollouts (and the backlog of large image episodes) stays bounded. Because
+    results are consumed out of completion order, the on-disk episode order is
+    not reproducible run-to-run, though each episode is seeded.
     """
-    env = gym.make("kitchen_relax-v1").unwrapped
     writer = _ZarrEpisodeWriter(out_path, _CHUNKS, _COMPRESSOR)
-    rng = random.Random(seed)
     all_subtasks = list(expert.SUBTASKS.keys())
 
     subtask_coverage = Counter()  # subtask -> # saved episodes containing it
     n_saved, n_attempt = 0, 0
-    while n_saved < n_episodes:
-        n_attempt += 1
-        if randomize:
-            seq = rng.sample(all_subtasks, chain_len)
-        else:
-            seq = sequence
-        episode, success, oscillated, osc_detail = _rollout(env, seq, 200 * len(seq))
-        T = episode["action"].shape[0]
-        if success or keep_failures:
-            writer.add_episode(episode)
-            n_saved += 1
-            subtask_coverage.update(seq)
-            tag = "ok" if success else ("FAIL-osc(kept)" if oscillated else "FAIL(kept)")
-            print(
-                f"  episode {n_saved}/{n_episodes} [{tag}] len={T} "
-                f"seq={'+'.join(seq)} (attempt {n_attempt}) "
-                f"[success rate: {n_saved}/{n_attempt} = {n_saved / n_attempt:.1%}]"
-            )
-        else:
-            reason = f"OSCILLATION @ {osc_detail}" if oscillated else "incomplete"
-            print(
-                f"  attempt {n_attempt}: FAILED ({reason}, seq={'+'.join(seq)}), discarding (len={T}) "
-                f"[success rate: {n_saved}/{n_attempt} = {n_saved / n_attempt:.1%}]"
-            )
+    attempts = itertools.count()  # global attempt index -> per-attempt seed
+    ctx = mp.get_context("spawn")
+    ex = ProcessPoolExecutor(
+        max_workers=n_workers,
+        mp_context=ctx,
+        initializer=_init_worker,
+        initargs=(randomize, chain_len, seed, sequence),
+    )
+    try:
+        while n_saved < n_episodes:
+            futures = [ex.submit(_run_one, next(attempts)) for _ in range(n_workers)]
+            for fut in as_completed(futures):
+                # .result() re-raises anything from the worker, incl.
+                # BrokenProcessPool if the worker process died (e.g. OOM).
+                seq, episode, success, oscillated, osc_detail = fut.result()
+                n_attempt += 1
+                T = episode["action"].shape[0]
+                if success or keep_failures:
+                    writer.add_episode(episode)
+                    n_saved += 1
+                    subtask_coverage.update(seq)
+                    tag = "ok" if success else ("FAIL-osc(kept)" if oscillated else "FAIL(kept)")
+                    print(
+                        f"  episode {n_saved}/{n_episodes} [{tag}] len={T} "
+                        f"seq={'+'.join(seq)} (attempt {n_attempt}) "
+                        f"[success rate: {n_saved}/{n_attempt} = {n_saved / n_attempt:.1%}]"
+                    )
+                else:
+                    reason = f"OSCILLATION @ {osc_detail}" if oscillated else "incomplete"
+                    print(
+                        f"  attempt {n_attempt}: FAILED ({reason}, seq={'+'.join(seq)}), discarding (len={T}) "
+                        f"[success rate: {n_saved}/{n_attempt} = {n_saved / n_attempt:.1%}]"
+                    )
+                if n_saved >= n_episodes:
+                    break
+    finally:
+        # cancel_futures drops queued-but-unstarted work; wait=True lets running
+        # workers finish and exit normally, which runs the atexit env cleanup.
+        ex.shutdown(wait=True, cancel_futures=True)
 
-    env.close_env()
     writer.finalize()
 
     print(f"\nSaved {n_saved} episodes, {writer.n_steps} steps -> {out_path}")
@@ -270,6 +339,8 @@ if __name__ == "__main__":
     p.add_argument("--seed", type=int, default=0, help="RNG seed for --randomize")
     # 581 matches the size of the human teleop dataset
     p.add_argument("--n-episodes", type=int, default=581, help="number of episodes to KEEP")
+    # 4 workers is appropriate on desktop with 32 GB of RAM (and at least 4 cores)
+    p.add_argument("--n-workers", type=int, default=4, help="parallel rollout worker processes")
     p.add_argument(
         "--keep-failures", action="store_true", help="also record episodes where the sequence did not complete"
     )
@@ -295,4 +366,5 @@ if __name__ == "__main__":
         randomize=args.randomize,
         chain_len=args.chain_len,
         seed=args.seed,
+        n_workers=args.n_workers,
     )
