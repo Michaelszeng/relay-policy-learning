@@ -18,6 +18,7 @@ import datetime
 import math
 import os
 import pickle
+import random
 import sys
 import time
 from pathlib import Path
@@ -33,6 +34,22 @@ os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 # on sys.path so `import adept_envs` works without the user exporting PYTHONPATH.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "adept_envs"))
+
+# Reuse the recorder's subtask encoding so eval-time conditioning matches the
+# dataset bit-for-bit. Load experts/subtasks/base.py directly (importlib) rather
+# than `import experts.subtasks`: that package's __init__ pulls in every FSM
+# module (and the mujoco controller), whereas base.py only needs numpy.
+import importlib.util as _ilu  # noqa: E402
+
+_base_spec = _ilu.spec_from_file_location(
+    "_expert_subtask_base", _REPO_ROOT / "experts" / "subtasks" / "base.py"
+)
+_subtask_base = _ilu.module_from_spec(_base_spec)
+_base_spec.loader.exec_module(_subtask_base)
+SUBTASK_IDS = _subtask_base.SUBTASK_IDS
+MAX_SEQUENCE_LEN = _subtask_base.MAX_SEQUENCE_LEN
+sequence_onehot = _subtask_base.sequence_onehot
+ALL_SUBTASKS = list(SUBTASK_IDS)
 
 import dill
 import gym
@@ -73,12 +90,21 @@ DEFAULT_TASK_TIMEOUT = 280  # matches D4RL franka_kitchen episode horizon
 # ------------------------------------------------------------------------- #
 # Obs preprocessing (batched)
 # ------------------------------------------------------------------------- #
-def preprocess_obs(state_batch: np.ndarray, cams_batch: dict, device: torch.device, obs_keys: set) -> dict:
+def preprocess_obs(
+    state_batch: np.ndarray,
+    cams_batch: dict,
+    device: torch.device,
+    obs_keys: set,
+    seq_onehot_batch: np.ndarray = None,
+) -> dict:
     """Pack a batched kitchen timestep into the dict the policy expects.
 
-    state_batch : (N, state_dim) numpy
-    cams_batch  : {cam_name: (N, H, W, 3) uint8}
-    obs_keys    : keys present in cfg.shape_meta.obs
+    state_batch      : (N, state_dim) numpy
+    cams_batch       : {cam_name: (N, H, W, 3) uint8}
+    obs_keys         : keys present in cfg.shape_meta.obs
+    seq_onehot_batch : (N, MAX_SEQUENCE_LEN * N_SUBTASKS) one-hot of each env's
+                       fixed plan, or None. Constant over time within a trial, so
+                       the same array is injected at every step.
 
     MuJoCo offscreen frames have negative row strides (OpenGL→image flip);
     np.ascontiguousarray materializes them so torch.from_numpy will accept them.
@@ -89,6 +115,10 @@ def preprocess_obs(state_batch: np.ndarray, cams_batch: dict, device: torch.devi
     for cam_name, frames in cams_batch.items():
         if cam_name in obs_keys:
             result[cam_name] = torch.from_numpy(np.ascontiguousarray(frames)).float().to(device)
+    if "subtask_sequence" in obs_keys and seq_onehot_batch is not None:
+        result["subtask_sequence"] = (
+            torch.from_numpy(np.ascontiguousarray(seq_onehot_batch)).float().to(device)
+        )
     return result
 
 
@@ -337,6 +367,7 @@ def run_rollout(
     headless: bool = True,
     record_video: bool = False,
     n_action_steps: int = None,
+    seq_onehot_batch: np.ndarray = None,
 ) -> list:
     """
     Run one round of parallel trials. Returns one dict per env in the batch.
@@ -355,7 +386,7 @@ def run_rollout(
     state_batch, cams_batch = batched_env.reset()
     if not headless:
         batched_env.render()
-    preprocessed = preprocess_obs(state_batch, cams_batch, device, obs_keys)
+    preprocessed = preprocess_obs(state_batch, cams_batch, device, obs_keys, seq_onehot_batch)
     obs_deque = collections.deque([preprocessed] * n_obs_steps, maxlen=n_obs_steps)
     action_queue: collections.deque = collections.deque()
 
@@ -406,7 +437,7 @@ def run_rollout(
                 done[i] = True
                 done_step[i] = step
 
-        preprocessed = preprocess_obs(state_batch, cams_batch, device, obs_keys)
+        preprocessed = preprocess_obs(state_batch, cams_batch, device, obs_keys, seq_onehot_batch)
         obs_deque.append(preprocessed)
 
         if record_video:
@@ -503,6 +534,30 @@ if __name__ == "__main__":
         help=f"Max rollout steps per trial (default: {DEFAULT_TASK_TIMEOUT}).",
     )
     parser.add_argument(
+        "--sequence",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated subtask plan to feed the policy as the (constant) "
+            "subtask_sequence conditioning, e.g. 'microwave,kettle,slide,hinge'. "
+            "If omitted, a fresh random chain is sampled per trial (matching "
+            "record_demos.py --randomize). Only used when the checkpoint's "
+            "shape_meta.obs contains subtask_sequence."
+        ),
+    )
+    parser.add_argument(
+        "--chain-len",
+        type=int,
+        default=MAX_SEQUENCE_LEN,
+        help=f"Length of randomly-sampled plans when --sequence is omitted (default: {MAX_SEQUENCE_LEN}).",
+    )
+    parser.add_argument(
+        "--seq-seed",
+        type=int,
+        default=0,
+        help="Seed for the per-trial random plan sampler (default: 0).",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -543,6 +598,46 @@ if __name__ == "__main__":
     policy_obs_keys = set(cfg.shape_meta.obs.keys())
     is_image_based = any(k in policy_obs_keys for k in ("scene", "wrist"))
     print(f"Policy type: {'image-based' if is_image_based else 'state-based'} (obs keys: {sorted(policy_obs_keys)})")
+
+    # --- subtask conditioning ---------------------------------------------- #
+    # current_subtask conditioning would require re-running the training oracle
+    # (detect is_done + at_home, advance a per-env latch) on the policy's own
+    # trajectory, which is fragile (the policy may never cleanly reach the home
+    # pose). We only support the constant subtask_sequence conditioning here.
+    if "current_subtask" in policy_obs_keys:
+        raise NotImplementedError(
+            "This checkpoint conditions on `current_subtask`, which is not supported "
+            "at eval time: supplying it would require re-implementing the training-time "
+            "oracle (is_done + at_home advancement) on the policy's own rollout. Retrain "
+            "with subtask_sequence-only conditioning, or implement the eval oracle."
+        )
+    needs_sequence = "subtask_sequence" in policy_obs_keys
+
+    fixed_sequence = None
+    if args.sequence is not None:
+        fixed_sequence = [s.strip() for s in args.sequence.split(",") if s.strip()]
+        unknown = [s for s in fixed_sequence if s not in SUBTASK_IDS]
+        if unknown:
+            parser.error(f"--sequence has unknown subtask(s) {unknown}; valid: {ALL_SUBTASKS}")
+        if len(fixed_sequence) > MAX_SEQUENCE_LEN:
+            parser.error(f"--sequence has {len(fixed_sequence)} subtasks; max is MAX_SEQUENCE_LEN={MAX_SEQUENCE_LEN}.")
+
+    if fixed_sequence is None and not 1 <= args.chain_len <= min(MAX_SEQUENCE_LEN, len(ALL_SUBTASKS)):
+        parser.error(f"--chain-len={args.chain_len} must be in [1, {min(MAX_SEQUENCE_LEN, len(ALL_SUBTASKS))}].")
+
+    seq_rng = random.Random(args.seq_seed)
+
+    def make_sequences(n: int) -> list:
+        """One subtask plan per env for a round: fixed if --sequence else random."""
+        if fixed_sequence is not None:
+            return [list(fixed_sequence) for _ in range(n)]
+        return [seq_rng.sample(ALL_SUBTASKS, args.chain_len) for _ in range(n)]
+
+    if needs_sequence:
+        mode = f"fixed {fixed_sequence}" if fixed_sequence is not None else f"random chain-len={args.chain_len}"
+        print(f"subtask_sequence conditioning: {mode} (seq-seed={args.seq_seed})")
+    elif args.sequence is not None:
+        print("[warn] --sequence given but checkpoint has no subtask_sequence obs key; ignoring.")
 
     if args.task_timeout is not None:
         rollout_max_steps = args.task_timeout
@@ -625,6 +720,13 @@ if __name__ == "__main__":
         else:
             record_this_round = n_total < video_budget
 
+        # Per-trial subtask plans (one per env in the batch). Constant within a
+        # trial, so we encode once and feed the same one-hot at every step.
+        seq_onehot_batch = None
+        if needs_sequence:
+            round_sequences = make_sequences(batched_env.n_envs)
+            seq_onehot_batch = np.stack([sequence_onehot(s) for s in round_sequences])
+
         # One batched rollout per round: returns n_envs per-trial dicts.
         round_results = run_rollout(
             batched_env=batched_env,
@@ -637,6 +739,7 @@ if __name__ == "__main__":
             headless=args.headless,
             record_video=record_this_round,
             n_action_steps=n_action_steps,
+            seq_onehot_batch=seq_onehot_batch,
         )
         rollout_time = time.time() - t_start
 

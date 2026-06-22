@@ -111,7 +111,7 @@ Controls: `k`/`l` step 1/10 frames forward, `j`/`h` step 1/10 frames backward, `
 
 ### Generating Data Using Markovian Expert
 
-An automated data generation script runs a markovian scripted expert across random 4-subtask sequences and collects successful episodes. This scripted expert is roughly 94% successful, which should be sufficient for data generation.
+An automated data generation script runs a markovian scripted expert across random 4-subtask sequences and collects successful episodes. This scripted expert is roughly 95% successful, which should be sufficient for data generation.
 
 Given the multi-modal, multi-task nature of Franka Kitchen, developing a true "Markovian" (in the sense that the expert's action depends only on the environment state) expert is very challenging. To make such a Markovian expert possible, we additionally record one-hot encodings containing the 4-subtask sequence (which is constant throughout a recorded episode) as observation keys in the .zarr dataset. Thus, the scripted expert *is* Markovian w.r.t. the combined environment state + subtask labels.
 
