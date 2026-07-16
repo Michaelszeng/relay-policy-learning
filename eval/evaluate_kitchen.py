@@ -23,12 +23,37 @@ import sys
 import time
 from pathlib import Path
 
-# Headless compute nodes have no X11 DISPLAY, so dm_control's default GLFW
-# backend fails to create a GL context ("gladLoadGL error"). Default to EGL
-# (offscreen GPU rendering) unless the user picked a backend explicitly. Must
-# run before any dm_control/mujoco import. Spawned workers inherit os.environ.
-os.environ.setdefault("MUJOCO_GL", "egl")
-os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+# dm_control fixes its render backend (render.BACKEND) at import time from
+# MUJOCO_GL, so we must choose it here, before any dm_control/mujoco import.
+#   - A live viewer window needs an ONSCREEN backend: glfw (which also handles
+#     offscreen camera capture, so the policy's cameras still work).
+#   - EGL is offscreen-only: great for headless compute nodes, but render_to_window()
+#     can never open a window under it.
+# So default to glfw when a viewer is wanted (no --headless, single in-process
+# env) and to egl otherwise (headless / multi-env subprocess workers, which only
+# ever render offscreen). An explicitly-exported MUJOCO_GL always wins.
+# Spawned workers inherit os.environ.
+def _viewer_requested(argv) -> bool:
+    if "--headless" in argv:
+        return False
+    n_envs = 1  # the live viewer is only supported for the single in-process env
+    for i, a in enumerate(argv):
+        if a == "--n-envs" and i + 1 < len(argv):
+            try:
+                n_envs = int(argv[i + 1])
+            except ValueError:
+                pass
+        elif a.startswith("--n-envs="):
+            try:
+                n_envs = int(a.split("=", 1)[1])
+            except ValueError:
+                pass
+    return n_envs == 1
+
+
+os.environ.setdefault("MUJOCO_GL", "glfw" if _viewer_requested(sys.argv) else "egl")
+if os.environ["MUJOCO_GL"] == "egl":
+    os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
 # adept_envs lives at <repo_root>/adept_envs/adept_envs. Insert <repo_root>/adept_envs
 # on sys.path so `import adept_envs` works without the user exporting PYTHONPATH.
@@ -524,8 +549,11 @@ if __name__ == "__main__":
         default=False,
         help=(
             "Run without the onscreen MuJoCo viewer (default: show a viewer "
-            "window that updates each step). Camera rendering for the policy is "
-            "offscreen either way, so --headless is purely about the live window."
+            "window that updates each step). The live viewer needs a display and "
+            "the glfw GL backend (auto-selected unless MUJOCO_GL is exported); "
+            "--headless uses the offscreen egl backend, ideal for compute nodes "
+            "with no display. Camera rendering for the policy is offscreen either "
+            "way, so --headless is purely about the live window."
         ),
     )
     parser.add_argument(
@@ -580,6 +608,17 @@ if __name__ == "__main__":
         help="Seed for the per-trial random plan sampler (default: 0).",
     )
     parser.add_argument(
+        "--record-zarr",
+        type=str,
+        default=None,
+        help=(
+            "Record every trial to a new zarr at this path, in the same layout as "
+            "kitchen_demos_markovian_scripted_expert.zarr, plus data/qpos and "
+            "data/qvel sim-state arrays so any step can be restored later "
+            "(see eval/episode_recorder.py). Requires --n-envs 1."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -595,6 +634,9 @@ if __name__ == "__main__":
 
     if args.resume and args.output_dir is None:
         parser.error("--resume requires --output-dir to be specified")
+
+    if args.record_zarr is not None and args.n_envs != 1:
+        parser.error("--record-zarr requires --n-envs 1 (recorder needs in-process sim access)")
 
     if args.n_required_subtasks < 1 or args.n_required_subtasks > len(SUBTASK_INFO):
         parser.error(f"--n-required-subtasks={args.n_required_subtasks} must be in [1, {len(SUBTASK_INFO)}].")
@@ -682,6 +724,22 @@ if __name__ == "__main__":
         print(f"Creating {args.n_envs} parallel envs ({args.env}, max_steps={rollout_max_steps})")
         batched_env = BatchedParallelEnvs(args.env, args.n_envs, robot_noise_ratio=robot_noise_ratio)
 
+    # --- optional episode recording (isolated: see eval/episode_recorder.py) --- #
+    # The wrapper exposes the BatchedSingleEnv interface, so run_rollout is
+    # unchanged; batched_env.close() below also flushes/finalizes the zarr.
+    episode_recorder = None
+    if args.record_zarr is not None:
+        from episode_recorder import RecordingSingleEnv
+
+        batched_env = RecordingSingleEnv(
+            batched_env,
+            args.record_zarr,
+            n_subtasks=len(SUBTASK_IDS),
+            seq_dim=MAX_SEQUENCE_LEN * len(SUBTASK_IDS),
+        )
+        episode_recorder = batched_env
+        print(f"Recording episodes to {args.record_zarr}")
+
     # --- output directory ---
     if args.output_dir is not None:
         out_dir = Path(args.output_dir)
@@ -751,6 +809,8 @@ if __name__ == "__main__":
         if needs_sequence:
             round_sequences = make_sequences(batched_env.n_envs)
             seq_onehot_batch = np.stack([sequence_onehot(s) for s in round_sequences])
+        if episode_recorder is not None and seq_onehot_batch is not None:
+            episode_recorder.set_sequence_onehot(seq_onehot_batch[0])
 
         # One batched rollout per round: returns n_envs per-trial dicts.
         round_results = run_rollout(
