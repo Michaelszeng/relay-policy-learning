@@ -38,28 +38,53 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import statsmodels.stats.proportion as smp
-from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import FormatStrFormatter, MultipleLocator, ScalarFormatter
+
+# Use DejaVu Sans Mono for all text in the figure.
+plt.rcParams["font.family"] = "monospace"
+plt.rcParams["font.monospace"] = ["DejaVu Sans Mono"]
 
 # -----------------------------------------------------------------------------
 # Visual constants
 # -----------------------------------------------------------------------------
 
-NAVY = "#1f3b6f"
+NAVY = "#2f5fb3"
+DARK_RED = "#c0392b"
 GRID_COLOR = "#bdbdbd"
+
+# -----------------------------------------------------------------------------
+# CoRL pre-print layout
+# -----------------------------------------------------------------------------
+# Sized to sit comfortably in a single CoRL column with ~8-10 pt in-figure text.
+
+FIG_WIDTH_IN = 3.4
+FIG_HEIGHT_IN = 2.6
+
+AXIS_TITLE_FS = 9    # x/y axis titles
+TITLE_FS = 10        # figure title
+TICK_FS = 7          # tick labels (kept at the ~7 pt readability floor)
+LEGEND_FS = 7        # legend labels
 
 
 def _generate_color_palette(num_colors: int) -> List[str]:
+    """Interpolate a gradient from navy (baseline) to dark red.
+
+    The first color is always navy so the earliest-submitted checkpoint keeps
+    the canonical "baseline" color.
+    """
     if num_colors <= 0:
         return []
     if num_colors == 1:
         return [NAVY]
-    # Interpolate green → red
+
+    r0, g0, b0 = (int(NAVY[i:i + 2], 16) for i in (1, 3, 5))
+    r1, g1, b1 = (int(DARK_RED[i:i + 2], 16) for i in (1, 3, 5))
     colors = []
     for i in range(num_colors):
         t = i / (num_colors - 1)
-        r = int(t * 255)
-        g = int((1 - t) * 200)
-        b = 80
+        r = round(r0 + (r1 - r0) * t)
+        g = round(g0 + (g1 - g0) * t)
+        b = round(b0 + (b1 - b0) * t)
         colors.append(f"#{r:02x}{g:02x}{b:02x}")
     return colors
 
@@ -189,7 +214,10 @@ def make_plot(
     dpi: int,
     plot_name: Optional[str] = None,
 ) -> plt.Figure:
-    fig, ax = plt.subplots(figsize=(5.0, 4.0))
+    # constrained_layout snugly packs the axis titles against the axes.
+    fig, ax = plt.subplots(figsize=(FIG_WIDTH_IN, FIG_HEIGHT_IN), layout="constrained")
+    # Minimize the padding between the axes/labels and the figure edge.
+    fig.get_layout_engine().set(w_pad=0.0, h_pad=0.0, wspace=0.0, hspace=0.0)
     ax.set_facecolor("white")
 
     all_horizons = sorted({r.horizon for _, results, _ in experiments for r in results})
@@ -209,8 +237,8 @@ def make_plot(
 
         ax.plot(horizons, rates, color=color, linewidth=1.5, marker="o", markersize=4,
                 markeredgecolor="white", markeredgewidth=0.8, label=exp_name, zorder=3)
-        ax.errorbar(horizons, rates, yerr=yerr, fmt="none", ecolor=color, elinewidth=1.0,
-                    capsize=4.0, capthick=1.0, alpha=0.9, zorder=2)
+        ax.errorbar(horizons, rates, yerr=yerr, fmt="none", ecolor=color, elinewidth=0.7,
+                    capsize=2.0, capthick=0.85, alpha=0.9, zorder=2)
 
         if show_ckpt_labels:
             for res in results:
@@ -221,17 +249,16 @@ def make_plot(
                                 textcoords="offset points", fontsize=6, color=color,
                                 ha="center", va="bottom", alpha=0.8)
 
-    # ax.set_xscale("log", base=2)
     ax.xaxis.set_major_formatter(ScalarFormatter())
     ax.xaxis.set_minor_formatter(ScalarFormatter())
     if all_horizons:
         ax.set_xticks(all_horizons)
         ax.set_xticklabels([str(h) for h in all_horizons])
 
-    title = plot_name or ("Execution Horizon Comparison" if len(experiments) > 1 else experiments[0][0])
-    ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
-    ax.set_xlabel("Execution Horizon (steps)", fontsize=12)
-    ax.set_ylabel("Success Rate", fontsize=12)
+    if plot_name:
+        ax.set_title(plot_name, fontsize=TITLE_FS, fontweight="bold", pad=6)
+    ax.set_xlabel("Execution Horizon (steps)", fontsize=AXIS_TITLE_FS)
+    ax.set_ylabel("Success Rate", fontsize=AXIS_TITLE_FS)
 
     ax.grid(True, which="major", color=GRID_COLOR, linestyle="-", linewidth=0.8, alpha=0.6)
     ax.grid(True, which="minor", color=GRID_COLOR, linestyle="-", linewidth=0.5, alpha=0.3)
@@ -240,14 +267,18 @@ def make_plot(
         spine.set_linewidth(1.0)
         spine.set_color("#4f4f4f")
 
-    ax.tick_params(axis="both", which="major", labelsize=8, length=6, width=1)
-    ax.tick_params(axis="x", which="minor", length=4, width=0.8)
+    ax.tick_params(axis="both", which="major", direction="in", labelsize=TICK_FS, length=2.5, width=0.8)
+    ax.tick_params(axis="x", which="minor", direction="in", length=1.5, width=0.6)
     ax.tick_params(axis="y", which="minor", left=False)
+    # Compact, fixed-width y labels locked to 0.1 increments so single-decimal
+    # labels never collide/duplicate.
+    ax.yaxis.set_major_locator(MultipleLocator(0.1))
+    ax.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    ax.tick_params(axis="y", which="major", pad=3)
 
     if len(experiments) > 1:
-        ax.legend(loc="best", fontsize=9, framealpha=0.9, edgecolor="#4f4f4f")
+        ax.legend(loc="best", fontsize=LEGEND_FS, framealpha=0.9, edgecolor="#4f4f4f")
 
-    fig.tight_layout()
     fig.set_dpi(dpi)
     return fig
 
@@ -339,7 +370,7 @@ def main() -> None:
 
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(args.output, dpi=args.dpi, bbox_inches="tight")
+        fig.savefig(args.output, dpi=args.dpi, bbox_inches="tight", pad_inches=0.01)
         print(f"\nSaved figure to {args.output}")
 
     if args.show:
