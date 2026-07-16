@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=evaluate_kitchen
-#SBATCH --account=locomotion
-#SBATCH --partition=vision-shared-titanrtx
-#SBATCH --exclude=freeman-titanrtx-2,freeman-titanrtx-1,gpu20-2.drl
-#SBATCH --qos=shared-if-available
+#SBATCH --account=<>
+#SBATCH --partition=<>
+#SBATCH --exclude=<>
+#SBATCH --qos=<>
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=1
@@ -23,17 +23,7 @@
 # Checkpoint to evaluate — edit this constant.
 # Path to a .ckpt file or a directory of .ckpt files.
 # ============================================================================
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/2_obs_human_expert/checkpoints"
-CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/2_obs_markovian_expert/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/2_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/3_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/4_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/5_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/6_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/8_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/12_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/16_obs_human_expert_attention_double_enc/checkpoints"
-# CHECKPOINT_PATH="/data/locomotion/michzeng/diffusion-policy-experiments/data/outputs/franka_kitchen/20_obs_human_expert_attention_double_enc/checkpoints"
+CHECKPOINT_PATH=""
 
 ACTION_HORIZON="${1:?Usage: sbatch eval/submit_evaluate_checkpoints.sbatch <action_horizon>}"
 
@@ -50,6 +40,7 @@ N_ENVS=8
 N_ROLLOUTS=500
 N_VIDEO_TRIALS=20
 N_REQUIRED_SUBTASKS=4
+NOISE="off"  # observation (sensor) noise during rollouts: "on" (robot_noise_ratio=0.1) or "off"
 TASK_TIMEOUT=""  # leave empty to use DEFAULT_TASK_TIMEOUT (280) from evaluate_kitchen.py
 # Markovian checkpoints need a longer per-task timeout.
 if [[ "${CHECKPOINT_PATH}" == *markovian* ]]; then
@@ -101,10 +92,13 @@ echo "N_VIDEO_TRIALS:      $N_VIDEO_TRIALS"
 echo "N_REQUIRED_SUBTASKS: $N_REQUIRED_SUBTASKS"
 echo "ACTION_HORIZON:      $ACTION_HORIZON"
 echo "TASK_TIMEOUT:        ${TASK_TIMEOUT:-(default)}"
+echo "NOISE:               $NOISE"
 echo "=========================================="
 
 TASK_TIMEOUT_ARG=()
 [[ -n "${TASK_TIMEOUT}" ]] && TASK_TIMEOUT_ARG=(--task-timeout "${TASK_TIMEOUT}")
+NOISE_ARG=()
+[[ -n "${NOISE}" ]] && NOISE_ARG=(--noise "${NOISE}")
 
 bash eval/evaluate_checkpoints.sh \
     "${CHECKPOINT_PATH}" \
@@ -113,4 +107,4 @@ bash eval/evaluate_checkpoints.sh \
     "${N_VIDEO_TRIALS}" \
     "${N_ROLLOUTS}" \
     "${N_REQUIRED_SUBTASKS}" \
-    --resume "${TASK_TIMEOUT_ARG[@]}"
+    --resume "${TASK_TIMEOUT_ARG[@]}" "${NOISE_ARG[@]}"

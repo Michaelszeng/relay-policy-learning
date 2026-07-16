@@ -28,12 +28,16 @@ N_REQUIRED_SUBTASKS="${6:-4}"
 DEBUG=false
 RESUME=false
 TASK_TIMEOUT=""
+NOISE=""
 _ARGS=("$@")
 for (( i=0; i<${#_ARGS[@]}; i++ )); do
     [[ "${_ARGS[$i]}" == "--debug" ]] && DEBUG=true
     [[ "${_ARGS[$i]}" == "--resume" ]] && RESUME=true
     if [[ "${_ARGS[$i]}" == "--task-timeout" ]]; then
         TASK_TIMEOUT="${_ARGS[$((i+1))]}"
+    fi
+    if [[ "${_ARGS[$i]}" == "--noise" ]]; then
+        NOISE="${_ARGS[$((i+1))]}"
     fi
 done
 
@@ -55,6 +59,8 @@ RESUME_FLAG=""
 [[ "${RESUME}" == "true" ]] && RESUME_FLAG="--resume"
 TASK_TIMEOUT_FLAG=""
 [[ -n "${TASK_TIMEOUT}" ]] && TASK_TIMEOUT_FLAG="--task-timeout ${TASK_TIMEOUT}"
+NOISE_FLAG=""
+[[ -n "${NOISE}" ]] && NOISE_FLAG="--noise ${NOISE}"
 
 # Collect checkpoints: single file or all .ckpt files in a directory
 # (excluding 'latest.ckpt' since it's typically a duplicate of the most recent topk).
@@ -93,7 +99,8 @@ for CHECKPOINT in "${CHECKPOINTS[@]}"; do
         --output-dir "${OUT_DIR}" \
         ${RESUME_FLAG} \
         ${HEADLESS_FLAG} \
-        ${TASK_TIMEOUT_FLAG}; then
+        ${TASK_TIMEOUT_FLAG} \
+        ${NOISE_FLAG}; then
         echo "ERROR: evaluate_kitchen.py failed for T_a=${N_ACTION_STEPS}, checkpoint=${CKPT_STEM}" >&2
         continue
     fi
