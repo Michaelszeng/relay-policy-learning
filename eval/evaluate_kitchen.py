@@ -111,7 +111,10 @@ def preprocess_obs(
     """
     result = {}
     if "agent_pos" in obs_keys:
-        result["agent_pos"] = torch.from_numpy(np.ascontiguousarray(state_batch)).float().to(device)
+        # The policy consumes only the robot proprioceptive state (first 9 dims:
+        # 7 arm joints + 2 gripper), not the full kitchen state vector.
+        agent_pos = np.ascontiguousarray(state_batch[..., :9])
+        result["agent_pos"] = torch.from_numpy(agent_pos).float().to(device)
     for cam_name, frames in cams_batch.items():
         if cam_name in obs_keys:
             result[cam_name] = torch.from_numpy(np.ascontiguousarray(frames)).float().to(device)
@@ -125,8 +128,13 @@ def preprocess_obs(
 # ------------------------------------------------------------------------- #
 # Env vectorization
 # ------------------------------------------------------------------------- #
-def _bootstrap_and_make(env_id: str):
-    """Re-create the kitchen env in any process (main or subprocess worker)."""
+def _bootstrap_and_make(env_id: str, robot_noise_ratio: float = None):
+    """Re-create the kitchen env in any process (main or subprocess worker).
+
+    robot_noise_ratio : if not None, override the env's simulated observation
+                        (sensor) noise scale. None keeps the env default (0.1);
+                        0.0 disables observation noise entirely.
+    """
     import sys as _sys
     from pathlib import Path as _Path
 
@@ -135,7 +143,10 @@ def _bootstrap_and_make(env_id: str):
 
     import gym as _gym
 
-    return _gym.make(env_id).unwrapped
+    env = _gym.make(env_id).unwrapped
+    if robot_noise_ratio is not None:
+        env.robot_noise_ratio = robot_noise_ratio
+    return env
 
 
 def _pack(state, cams):
@@ -145,12 +156,12 @@ def _pack(state, cams):
     )
 
 
-def _worker(env_id: str, conn):
+def _worker(env_id: str, conn, robot_noise_ratio: float = None):
     """Subprocess worker: holds one kitchen env, services reset/step/close.
 
     Replies are tagged tuples: ("ok", state, cams) or ("err", msg).
     """
-    env = _bootstrap_and_make(env_id)
+    env = _bootstrap_and_make(env_id, robot_noise_ratio=robot_noise_ratio)
     while True:
         cmd, payload = conn.recv()
         if cmd == "reset":
@@ -198,14 +209,14 @@ class BatchedSingleEnv:
 class BatchedParallelEnvs:
     """Subprocess pool: one kitchen env per worker, obs/actions stacked in main."""
 
-    def __init__(self, env_id: str, n_envs: int):
+    def __init__(self, env_id: str, n_envs: int, robot_noise_ratio: float = None):
         import multiprocessing as mp
 
         ctx = mp.get_context("spawn")  # CUDA-safe; fork would deadlock if torch is imported
         self.conns, self.procs = [], []
         for _ in range(n_envs):
             parent, child = ctx.Pipe()
-            p = ctx.Process(target=_worker, args=(env_id, child), daemon=True)
+            p = ctx.Process(target=_worker, args=(env_id, child, robot_noise_ratio), daemon=True)
             p.start()
             child.close()
             self.conns.append(parent)
@@ -488,6 +499,17 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument("--env", type=str, default="kitchen_relax-v1", help="Gym env id (default: kitchen_relax-v1).")
+    parser.add_argument(
+        "--noise",
+        choices=["on", "off"],
+        default="on",
+        help=(
+            "Whether to inject the env's simulated observation (sensor) noise during "
+            "rollouts. 'on' keeps the env default (robot_noise_ratio=0.1, matching data "
+            "collection); 'off' sets robot_noise_ratio=0.0 for clean observations "
+            "(default: on)."
+        ),
+    )
     parser.add_argument("--n-rollouts", type=int, default=10)
     parser.add_argument(
         "--n-envs",
@@ -644,9 +666,12 @@ if __name__ == "__main__":
     else:
         rollout_max_steps = DEFAULT_TASK_TIMEOUT
     np.random.seed(43)
+    # None keeps the env default (0.1); 0.0 disables observation noise entirely.
+    robot_noise_ratio = None if args.noise == "on" else 0.0
+    print(f"Observation noise: on (env default robot_noise_ratio=0.1)" if args.noise == "on" else "off (robot_noise_ratio=0.0)")
     if args.n_envs == 1:
         print(f"Creating env ({args.env}, max_steps={rollout_max_steps})")
-        batched_env = BatchedSingleEnv(_bootstrap_and_make(args.env))
+        batched_env = BatchedSingleEnv(_bootstrap_and_make(args.env, robot_noise_ratio=robot_noise_ratio))
     else:
         if not args.headless:
             print(
@@ -655,7 +680,7 @@ if __name__ == "__main__":
             )
             args.headless = True
         print(f"Creating {args.n_envs} parallel envs ({args.env}, max_steps={rollout_max_steps})")
-        batched_env = BatchedParallelEnvs(args.env, args.n_envs)
+        batched_env = BatchedParallelEnvs(args.env, args.n_envs, robot_noise_ratio=robot_noise_ratio)
 
     # --- output directory ---
     if args.output_dir is not None:
