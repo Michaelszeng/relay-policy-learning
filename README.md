@@ -66,7 +66,7 @@ To use my training and policy eval pipeline, additional installs are required. S
 ## Getting Started (User)
 
 Use the environments in your code (After including in the PYTHONPATH)
-```
+```bash
 #!/usr/bin/env python3
 
 import adept_envs
@@ -80,9 +80,9 @@ env = gym.make('kitchen_relax-v1')
 
 1. To use the demos, clone the puppet VR repository and add its `vive/source` directory to the PYTHONPATH:
 
-```
-$ git clone https://github.com/vikashplus/puppet
-$ export PYTHONPATH=$PYTHONPATH:/PATH/TO/puppet/vive/source
+```bash
+git clone https://github.com/vikashplus/puppet
+export PYTHONPATH=$PYTHONPATH:/PATH/TO/puppet/vive/source
 ```
 
 2. Use parse_demos to parse the data into pkl format with 12.5 Hz observations/actions. Unzip the kitchen_demos_multitask.zip and then run:
@@ -128,3 +128,8 @@ python experts/record_demos.py --randomize --chain-len 4 \
 ### Evaluating Trained Policies
 
 See `eval/README.md`.
+
+
+### Installation on a SLURM Cluster
+
+See `SLURM_README.md`.
