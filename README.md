@@ -133,3 +133,30 @@ See `eval/README.md`.
 ### Installation on a SLURM Cluster
 
 See `SLURM_README.md`.
+
+
+
+## Citation
+
+If you use this repo in your work, please:
+
+
+1. The original `relay-policy-learning` repo that developed the Franka Kitchen environment:
+
+```
+@misc{gupta2019relaypolicylearningsolving,
+      title={Relay Policy Learning: Solving Long-Horizon Tasks via Imitation and Reinforcement Learning}, 
+      author={Abhishek Gupta and Vikash Kumar and Corey Lynch and Sergey Levine and Karol Hausman},
+      year={2019},
+      eprint={1910.11956},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/1910.11956}, 
+}
+```
+
+2. [Revisiting Open-Loop Execution in Robotics: Toward Reactive, Higher-Performing Policies]()
+
+```
+TODO
+```
