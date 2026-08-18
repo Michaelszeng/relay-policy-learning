@@ -155,8 +155,16 @@ If you use this repo in your work, please:
 }
 ```
 
-2. [Revisiting Open-Loop Execution in Robotics: Toward Reactive, Higher-Performing Policies]()
+2. [Revisiting Open-Loop Execution in Robotics: Toward Reactive, Higher-Performing Policies](https://arxiv.org/abs/2608.15938):
 
 ```
-TODO
+@misc{zeng2026revisitingopenloopexecutionrobotics,
+      title={Revisiting Open-Loop Execution in Robotics: Toward Reactive, Higher-Performing Policies}, 
+      author={Michael Zeng and Abhinav Agarwal and Ajay Bati and Brian Lee and Siddharth Ancha and Russ Tedrake},
+      year={2026},
+      eprint={2608.15938},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2608.15938}, 
+}
 ```
