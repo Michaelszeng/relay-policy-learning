@@ -1,13 +1,13 @@
 # Policy Evaluation.
 
-The following installation instructions pertain to evaluating a policy trained using [diffusion-policy-experiments](https://github.com/Michaelszeng/diffusion-policy-experiments). The evaluation script `eval/evaluate_kitchen.py` may be easily adapted to other training pipelines.
+The following installation instructions pertain to evaluating a policy trained using [diffusion-policy-experiments](https://anonymous.4open.science/) (link redacted for review). The evaluation script `eval/evaluate_kitchen.py` may be easily adapted to other training pipelines.
 
 ## Installation
 
 ### 1. Install the `diffusion-policy` package and its pinned dependencies
-The eval pipeline (`eval/evaluate_kitchen.py`) loads checkpoints trained with my [diffusion-policy-experiments](https://github.com/Michaelszeng/diffusion-policy-experiments) repo, so we install both its pinned dependencies and the editable package itself. **Python must be 3.9**.
+The eval pipeline (`eval/evaluate_kitchen.py`) loads checkpoints trained with the [diffusion-policy-experiments](https://anonymous.4open.science/) repo (link redacted for review), so we install both its pinned dependencies and the editable package itself. **Python must be 3.9**.
 ```bash
-git clone https://github.com/michaelszeng/diffusion-policy ~/diffusion-policy
+git clone https://anonymous.4open.science/  ~/diffusion-policy  # link redacted for review
 
 # install pinned deps + editable package
 pip install -r ~/diffusion-policy/requirements.txt

@@ -62,7 +62,7 @@ cd "$SLURM_SUBMIT_DIR" || { echo "Failed to change directory to $SLURM_SUBMIT_DI
 
 # Conda env that has the diffusion-policy package + relay-policy-learning extras
 # installed (per README steps 5-6). Must be Python 3.9.
-source /data/locomotion/michzeng/miniconda3/etc/profile.d/conda.sh
+source /path/to/workspace/miniconda3/etc/profile.d/conda.sh
 CONDA_ENV="${CONDA_ENV:-relay}"
 conda activate "${CONDA_ENV}"
 # Conda activation can clear CUDA_VISIBLE_DEVICES on some setups — restore it
