@@ -154,17 +154,3 @@ If you use this repo in your work, please:
       url={https://arxiv.org/abs/1910.11956}, 
 }
 ```
-
-2. [Revisiting Open-Loop Execution in Robotics: Toward Reactive, Higher-Performing Policies](https://arxiv.org/abs/2608.15938):
-
-```
-@misc{anonymous2026revisitingopenloopexecutionrobotics,
-      title={Revisiting Open-Loop Execution in Robotics: Toward Reactive, Higher-Performing Policies}, 
-      author={Anonymous Authors},
-      year={2026},
-      eprint={2608.15938},
-      archivePrefix={arXiv},
-      primaryClass={cs.RO},
-      url={https://arxiv.org/abs/2608.15938}, 
-}
-```
